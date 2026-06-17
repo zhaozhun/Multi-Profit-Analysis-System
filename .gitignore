@@ -1,0 +1,49 @@
+# IDE配置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 构建产物
+后端/target/
+前端/node_modules/
+前端/build/
+前端/dist/
+
+# 环境配置
+.env
+.env.local
+.env.*.local
+
+# 日志文件
+*.log
+logs/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 数据库脚本临时文件
+*.sql.bak
+
+# Java编译文件
+*.class
+*.jar
+*.war
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# React
+前端/.pnp
+前端/.pnp.js
+前端/coverage/
+前端/.env.local
+前端/.env.development.local
+前端/.env.test.local
+前端/.env.production.local
+前端/npm-debug.log*
+前端/yarn-debug.log*
+前端/yarn-error.log*

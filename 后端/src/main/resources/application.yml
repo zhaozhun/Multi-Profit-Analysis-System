@@ -1,0 +1,84 @@
+server:
+  port: 8080
+  # 优雅停机：等待正在处理的请求完成后再关闭
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    # 优雅停机超时时间（30秒）
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    url: jdbc:mysql://localhost:3306/multi_profit?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: mpuser
+    password: <DB_PASSWORD>
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # HikariCP 连接池配置
+    hikari:
+      # 最小空闲连接数
+      minimum-idle: 5
+      # 最大连接数
+      maximum-pool-size: 20
+      # 连接超时时间（毫秒）
+      connection-timeout: 30000
+      # 空闲连接最大存活时间（毫秒）
+      idle-timeout: 600000
+      # 连接最大生命周期（毫秒）
+      max-lifetime: 1800000
+      # 连接泄漏检测阈值（毫秒）：超过此时间未归还连接会打印警告
+      leak-detection-threshold: 60000
+      # 连接测试查询
+      connection-test-query: SELECT 1
+      # 从连接池获取连接前是否测试连接有效性
+      validation-timeout: 5000
+
+# Actuator 监控端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env
+      base-path: /actuator
+  endpoint:
+    health:
+      # 显示详细健康信息（含磁盘空间、数据库连接等）
+      show-details: always
+      # 启用磁盘空间和数据库健康检查
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
+
+# 日志
+logging:
+  level:
+    com.multiprofit: debug
+    org.springframework.jdbc: info
+  # 日志文件配置
+  file:
+    name: /var/log/multiprofit/app.log
+  logback:
+    rollingpolicy:
+      # 单个日志文件最大 100MB
+      max-file-size: 100MB
+      # 最多保留 30 天日志
+      max-history: 30
+      # 日志总大小上限 1GB
+      total-size-cap: 1GB
+
+# AI 配置
+ai:
+  anthropic:
+    api-key: <REDACTED_API_KEY>
+    base-url: https://token-plan-cn.xiaomimimo.com/anthropic
+    model: mimo-v2.5-pro
+    max-tokens: 4096
+
+# 数据校验配置
+validation:
+  anomaly:
+    profit-change-threshold: 20
+    cost-change-threshold: 15
+    consecutive-decline-months: 3

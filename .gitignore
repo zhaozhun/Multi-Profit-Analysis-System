@@ -54,3 +54,8 @@ mvnw.cmd
 后端/src/main/resources/biz_ledger_insert.sql
 后端/src/main/resources/biz_ledger_mock.csv
 后端/src/main/resources/biz_ledger_mock.csv.bak
+
+# Claude Code配置
+CLAUDE.md
+PROGRESS.md
+memory/

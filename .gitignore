@@ -47,3 +47,10 @@ mvnw.cmd
 前端/npm-debug.log*
 前端/yarn-debug.log*
 前端/yarn-error.log*
+
+# 大数据文件（超过GitHub限制）
+*.csv
+!前端/src/**/*.csv
+后端/src/main/resources/biz_ledger_insert.sql
+后端/src/main/resources/biz_ledger_mock.csv
+后端/src/main/resources/biz_ledger_mock.csv.bak

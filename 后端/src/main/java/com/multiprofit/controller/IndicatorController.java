@@ -7,6 +7,7 @@ import com.multiprofit.mapper.AtomicIndicatorMapper;
 import com.multiprofit.mapper.DerivedIndicatorMapper;
 import com.multiprofit.service.IndicatorCalcService;
 import com.multiprofit.service.IndicatorQueryService;
+import com.multiprofit.service.IndicatorSummaryService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,6 +33,9 @@ public class IndicatorController {
 
     @Autowired
     private IndicatorQueryService indicatorQueryService;
+
+    @Autowired
+    private IndicatorSummaryService indicatorSummaryService;
 
     /**
      * 查询指标列表
@@ -351,5 +355,87 @@ public class IndicatorController {
             @RequestParam String periodValue) {
         List<Map<String, Object>> results = indicatorCalcService.calcAllIndicators(period, periodValue);
         return ResponseEntity.ok(results);
+    }
+
+    // ============================================
+    // 新增：指标汇总API
+    // ============================================
+
+    /**
+     * 获取指标汇总数据
+     */
+    @GetMapping("/summary")
+    public ApiResponse<List<Map<String, Object>>> getIndicatorSummary(
+            @RequestParam String businessLine,
+            @RequestParam String period,
+            @RequestParam(defaultValue = "MONTHLY_DAILY_AVG") String statType) {
+        try {
+            List<Map<String, Object>> result = indicatorSummaryService.getIndicatorSummary(businessLine, period, statType);
+            return ApiResponse.ok(result);
+        } catch (Exception e) {
+            return ApiResponse.error("获取指标汇总数据失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取费用类型列表
+     */
+    @GetMapping("/cost-types")
+    public ApiResponse<List<Map<String, Object>>> getCostTypes(
+            @RequestParam String businessLine) {
+        try {
+            List<Map<String, Object>> result = indicatorSummaryService.getCostTypes(businessLine);
+            return ApiResponse.ok(result);
+        } catch (Exception e) {
+            return ApiResponse.error("获取费用类型列表失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取费用分摊结果
+     */
+    @GetMapping("/cost-allocation/{costType}")
+    public ApiResponse<Map<String, Object>> getCostAllocationResult(
+            @PathVariable String costType,
+            @RequestParam String period,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        try {
+            Map<String, Object> result = indicatorSummaryService.getCostAllocationResult(costType, period, page, size);
+            return ApiResponse.ok(result);
+        } catch (Exception e) {
+            return ApiResponse.error("获取费用分摊结果失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取费用原始数据
+     */
+    @GetMapping("/cost-original/{costType}")
+    public ApiResponse<Map<String, Object>> getCostOriginalData(
+            @PathVariable String costType,
+            @RequestParam String period,
+            @RequestParam String dimType) {
+        try {
+            Map<String, Object> result = indicatorSummaryService.getCostOriginalData(costType, period, dimType);
+            return ApiResponse.ok(result);
+        } catch (Exception e) {
+            return ApiResponse.error("获取费用原始数据失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 触发指标预计算
+     */
+    @PostMapping("/calculate")
+    public ApiResponse<Map<String, Object>> calculateIndicators(
+            @RequestParam String period,
+            @RequestParam(required = false) String indicatorCode) {
+        try {
+            Map<String, Object> result = indicatorSummaryService.calculateIndicators(period, indicatorCode);
+            return ApiResponse.ok(result);
+        } catch (Exception e) {
+            return ApiResponse.error("触发指标预计算失败: " + e.getMessage());
+        }
     }
 }

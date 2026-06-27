@@ -144,3 +144,75 @@ export const calcIndicators = async (
   });
   return response.data;
 };
+
+// ============================================
+// 新增：指标汇总API
+// ============================================
+
+/**
+ * 获取指标汇总数据
+ */
+export const getIndicatorSummary = async (
+  businessLine: string,
+  period: string,
+  statType: string = 'MONTHLY_DAILY_AVG'
+): Promise<Record<string, any>[]> => {
+  const response = await api.get('/summary', {
+    params: { businessLine, period, statType },
+  });
+  return response.data;
+};
+
+/**
+ * 获取费用类型列表
+ */
+export const getCostTypes = async (
+  businessLine: string
+): Promise<Record<string, any>[]> => {
+  const response = await api.get('/cost-types', {
+    params: { businessLine },
+  });
+  return response.data;
+};
+
+/**
+ * 获取费用分摊结果
+ */
+export const getCostAllocationResult = async (
+  costType: string,
+  period: string,
+  page: number = 1,
+  size: number = 20
+): Promise<Record<string, any>> => {
+  const response = await api.get(`/cost-allocation/${costType}`, {
+    params: { period, page, size },
+  });
+  return response.data;
+};
+
+/**
+ * 获取费用原始数据
+ */
+export const getCostOriginalData = async (
+  costType: string,
+  period: string,
+  dimType: string
+): Promise<Record<string, any>> => {
+  const response = await api.get(`/cost-original/${costType}`, {
+    params: { period, dimType },
+  });
+  return response.data;
+};
+
+/**
+ * 触发指标预计算
+ */
+export const calculateIndicators = async (
+  period: string,
+  indicatorCode?: string
+): Promise<Record<string, any>> => {
+  const response = await api.post('/calculate', null, {
+    params: { period, indicatorCode },
+  });
+  return response.data;
+};

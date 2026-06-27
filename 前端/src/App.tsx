@@ -43,6 +43,7 @@ import StatisticsPage from './pages/Allocation/Statistics';
 
 // 指标数据
 import IndicatorDataPage from './pages/BaseData/IndicatorData';
+import ExpenseDetailPage from './pages/BaseData/IndicatorData/ExpenseDetail';
 
 const App: React.FC = () => {
   return (
@@ -94,6 +95,7 @@ const App: React.FC = () => {
 
           {/* 指标数据 */}
           <Route path="indicator-data" element={<IndicatorDataPage />} />
+          <Route path="indicator-data/expense/:costType" element={<ExpenseDetailPage />} />
         </Route>
       </Routes>
     </ConfigProvider>

@@ -1,0 +1,12 @@
+# Agent配置
+agent:
+  config:
+    path: classpath:agents/*.md
+
+# AI配置
+ai:
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY:}
+    base-url: https://api.anthropic.com
+    model: claude-sonnet-4-20250514
+    max-tokens: 4096

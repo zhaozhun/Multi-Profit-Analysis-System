@@ -1,6 +1,6 @@
 package com.multiprofit.controller;
 
-import com.multiprofit.ai.ClaudeClient;
+import com.multiprofit.ai.ModelApiClient;
 import com.multiprofit.dto.AiChatRequest;
 import com.multiprofit.dto.ApiResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +14,7 @@ import java.util.*;
 public class AiExploreController {
 
     @Autowired
-    private ClaudeClient claudeClient;
+    private ModelApiClient claudeClient;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

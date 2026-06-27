@@ -1,21 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Card, Input, Button, Space, Spin, Tag, Tabs, message } from 'antd';
+import { Card, Input, Button, Space, Tag, message } from 'antd';
 import {
   SendOutlined, RobotOutlined, UserOutlined,
-  FileExcelOutlined, ExperimentOutlined, SearchOutlined,
-  BarChartOutlined,
+  ClearOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
-import api from '../../services/api';
+import AgentWorkflowCard from '../../components/AgentWorkflowCard';
+import agentApi, { AgentChatResponse, AgentInfo } from '../../services/agentApi';
 
 const { TextArea } = Input;
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  sql?: string;
-  data?: any[];
-  chartType?: string;
+  agentResponse?: AgentChatResponse;
   timestamp: string;
 }
 
@@ -26,17 +23,18 @@ const AiAssistant: React.FC = () => {
       content: '你好！我是多维盈利分析系统的AI助手。我可以帮你：\n\n' +
         '📊 **数据查询** — "本月哪个分行利润最高？"\n' +
         '📈 **趋势分析** — "最近6个月收入趋势如何？"\n' +
-        '🔍 **异常诊断** — "为什么XX分行利润下降了？"\n' +
-        '📋 **生成简报** — 点击按钮一键生成经营简报\n' +
-        '🛡️ **数据治理** — 检测数据质量问题\n\n' +
+        '🔍 **深度分析** — "Q3利润为什么下降了？"\n' +
+        '💰 **费用分摊** — "检查分摊规则配置"\n' +
+        '⚠️ **风险预警** — "检查风险指标"\n' +
+        '📋 **生成报告** — "生成月度经营简报"\n\n' +
         '有什么可以帮你的？',
       timestamp: new Date().toLocaleTimeString(),
     },
   ]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
-  const [briefLoading, setBriefLoading] = useState(false);
-  const [anomalyLoading, setAnomalyLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string>('');
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -47,12 +45,18 @@ const AiAssistant: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // 判断是否是数据查询类问题
-  const isDataQuery = (text: string): boolean => {
-    const keywords = ['排名', '最高', '最低', '多少', '趋势', '对比', '分析', '查询',
-      '哪个', '哪些', '几家', '多少家', '利润', '收入', '成本', '规模', '机构', '产品',
-      '条线', '渠道', '客户经理', '客户', '分行', '支行'];
-    return keywords.some(k => text.includes(k));
+  useEffect(() => {
+    // 加载Agent列表
+    loadAgents();
+  }, []);
+
+  const loadAgents = async () => {
+    try {
+      const agentList = await agentApi.listAgents();
+      setAgents(agentList);
+    } catch (error) {
+      console.error('加载Agent列表失败:', error);
+    }
   };
 
   const handleSend = async () => {
@@ -69,161 +73,92 @@ const AiAssistant: React.FC = () => {
     setLoading(true);
 
     try {
-      let result: any;
+      const response = await agentApi.chat({
+        message: question,
+        sessionId: sessionId || undefined,
+      });
 
-      if (isDataQuery(question)) {
-        // 数据查询类问题，调用AI探查API
-        result = await api.post('/ai-explore/query', { message: question });
-        const assistantMsg: ChatMessage = {
-          role: 'assistant',
-          content: result.answer || '查询完成',
-          sql: result.sql,
-          data: result.data,
-          chartType: result.chartType,
-          timestamp: new Date().toLocaleTimeString(),
-        };
-        setMessages(prev => [...prev, assistantMsg]);
-      } else {
-        // 通用问答
-        result = await api.post('/ai/chat', { message: question });
-        const assistantMsg: ChatMessage = {
-          role: 'assistant',
-          content: result.answer || '抱歉，暂时无法回答。',
-          timestamp: new Date().toLocaleTimeString(),
-        };
-        setMessages(prev => [...prev, assistantMsg]);
+      // 更新sessionId
+      if (response.sessionId) {
+        setSessionId(response.sessionId);
       }
+
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: response.answer,
+        agentResponse: response,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
     } catch (error) {
-      message.error('请求失败');
+      message.error('请求失败，请重试');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGenerateBrief = async () => {
-    setBriefLoading(true);
-    try {
-      const result: any = await api.post('/ai/brief?period=2026-05');
-      const msg: ChatMessage = {
-        role: 'assistant',
-        content: `📋 **2026年5月经营简报**\n\n${result}`,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      setMessages(prev => [...prev, msg]);
-    } catch (error) {
-      message.error('生成简报失败');
-    } finally {
-      setBriefLoading(false);
-    }
-  };
-
-  const handleDetectAnomaly = async () => {
-    setAnomalyLoading(true);
-    try {
-      const result: any = await api.post('/governance/monitor?period=2026-05');
-      let content = '🔍 **数据异常检测结果**\n\n';
-      if (result && result.length > 0) {
-        result.forEach((item: any, index: number) => {
-          content += `${index + 1}. **${item.message}**\n`;
-          if (item.aiAnalysis) {
-            content += `   💡 ${item.aiAnalysis}\n`;
-          }
-          content += '\n';
-        });
-      } else {
-        content += '未检测到异常数据，各项指标正常。';
-      }
-      const msg: ChatMessage = {
-        role: 'assistant',
-        content,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      setMessages(prev => [...prev, msg]);
-    } catch (error) {
-      message.error('异常检测失败');
-    } finally {
-      setAnomalyLoading(false);
-    }
+  const handleClearSession = () => {
+    setSessionId('');
+    setMessages([{
+      role: 'assistant',
+      content: '会话已清除，可以开始新的对话。',
+      timestamp: new Date().toLocaleTimeString(),
+    }]);
+    message.success('会话已清除');
   };
 
   const quickQuestions = [
     '本月哪个分行利润最高？',
-    '最近6个月收入趋势如何？',
-    '各产品线的盈利情况？',
-    '成本收入比最高的是哪个机构？',
-    '客户维度TOP10',
-    '各条线盈利对比',
+    'Q3利润为什么下降了？',
+    '客户价值分布分析',
+    '检查分摊规则配置',
+    '检查风险指标',
+    '生成月度经营简报',
   ];
-
-  const getChartOption = (data: any[], chartType: string) => {
-    if (!data || data.length === 0) return null;
-
-    if (chartType === 'bar') {
-      const names = data.map((d: any) => d.name || d.org_name || d.product_name || '');
-      const values = data.map((d: any) => d.net_profit || d.revenue || 0);
-      return {
-        tooltip: { trigger: 'axis' },
-        xAxis: { type: 'category', data: names, axisLabel: { rotate: 30 } },
-        yAxis: { type: 'value', name: '金额(万元)' },
-        series: [{
-          type: 'bar',
-          data: values,
-          itemStyle: { color: '#1890ff' },
-          label: { show: true, position: 'top' },
-        }],
-      };
-    }
-
-    if (chartType === 'line') {
-      const names = data.map((d: any) => d.period || d.month || '');
-      const values = data.map((d: any) => d.net_profit || d.revenue || 0);
-      return {
-        tooltip: { trigger: 'axis' },
-        xAxis: { type: 'category', data: names },
-        yAxis: { type: 'value', name: '金额(万元)' },
-        series: [{
-          type: 'line',
-          data: values,
-          smooth: true,
-          areaStyle: { opacity: 0.3 },
-          itemStyle: { color: '#52c41a' },
-        }],
-      };
-    }
-
-    return null;
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)' }}>
       {/* 标题栏 */}
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>
-          <RobotOutlined style={{ marginRight: 8, color: '#1890ff' }} />
-          AI 智能助手
-        </h2>
-        <p style={{ color: '#999', margin: '4px 0 0' }}>
-          支持数据查询、趋势分析、异常诊断、经营简报生成
-        </p>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={{ margin: 0 }}>
+            <RobotOutlined style={{ marginRight: 8, color: '#1890ff' }} />
+            AI 智能助手
+          </h2>
+          <p style={{ color: '#999', margin: '4px 0 0' }}>
+            支持数据查询、深度分析、费用分摊、风险预警
+          </p>
+        </div>
+        <Space>
+          {sessionId && (
+            <Tag color="blue">会话ID: {sessionId.substring(0, 8)}...</Tag>
+          )}
+          <Button
+            icon={<ClearOutlined />}
+            onClick={handleClearSession}
+            size="small"
+          >
+            清除会话
+          </Button>
+        </Space>
       </div>
 
-      {/* 快捷操作 */}
+      {/* 快捷Agent入口 */}
       <div style={{ marginBottom: 16 }}>
-        <Space>
-          <Button
-            icon={<FileExcelOutlined />}
-            loading={briefLoading}
-            onClick={handleGenerateBrief}
-          >
-            生成经营简报
-          </Button>
-          <Button
-            icon={<ExperimentOutlined />}
-            loading={anomalyLoading}
-            onClick={handleDetectAnomaly}
-          >
-            异常检测
-          </Button>
+        <Space wrap>
+          {agents.filter(a => !a.triggers.includes('默认')).map(agent => (
+            <Tag
+              key={agent.name}
+              icon={<ThunderboltOutlined />}
+              color="blue"
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                setInputValue(`请帮我${agent.description}`);
+              }}
+            >
+              {agent.icon} {agent.name}
+            </Tag>
+          ))}
         </Space>
       </div>
 
@@ -264,22 +199,19 @@ const AiAssistant: React.FC = () => {
                   lineHeight: 1.6,
                   maxWidth: '100%',
                 }}>
-                  {msg.content}
-                  {msg.sql && (
-                    <div style={{
-                      background: '#f5f5f5', padding: 8, borderRadius: 4,
-                      marginTop: 8, fontSize: 12, fontFamily: 'monospace',
-                    }}>
-                      📝 {msg.sql}
-                    </div>
-                  )}
-                  {msg.data && msg.data.length > 0 && getChartOption(msg.data, msg.chartType || 'bar') && (
-                    <div style={{ marginTop: 12 }}>
-                      <ReactECharts
-                        option={getChartOption(msg.data, msg.chartType || 'bar')}
-                        style={{ height: 250 }}
-                      />
-                    </div>
+                  {/* 如果有Agent响应，使用卡片展示 */}
+                  {msg.agentResponse ? (
+                    <AgentWorkflowCard
+                      agentName={msg.agentResponse.agentName}
+                      agentIcon={msg.agentResponse.agentIcon}
+                      status={msg.agentResponse.status === 'COMPLETED' ? 'completed' :
+                              msg.agentResponse.status === 'FAILED' ? 'failed' : 'running'}
+                      result={msg.agentResponse.answer}
+                      confidence={msg.agentResponse.confidence}
+                      suggestions={msg.agentResponse.suggestions}
+                    />
+                  ) : (
+                    msg.content
                   )}
                 </div>
               </div>
@@ -298,7 +230,7 @@ const AiAssistant: React.FC = () => {
                 background: '#f6ffed', padding: '12px 16px',
                 borderRadius: 8,
               }}>
-                <Spin size="small" /> 思考中...
+                <div className="loading-dots">思考中...</div>
               </div>
             </div>
           )}
@@ -326,7 +258,7 @@ const AiAssistant: React.FC = () => {
         <TextArea
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          placeholder="输入问题，例如：本月哪个分行利润最高？"
+          placeholder="输入问题，例如：Q3利润为什么下降了？"
           autoSize={{ minRows: 1, maxRows: 4 }}
           onPressEnter={(e) => {
             if (!e.shiftKey) {
@@ -345,6 +277,19 @@ const AiAssistant: React.FC = () => {
           发送
         </Button>
       </div>
+
+      {/* 样式 */}
+      <style>{`
+        .loading-dots::after {
+          content: '...';
+          animation: dots 1.5s steps(3, end) infinite;
+        }
+        @keyframes dots {
+          0%, 20% { content: '.'; }
+          40% { content: '..'; }
+          60%, 100% { content: '...'; }
+        }
+      `}</style>
     </div>
   );
 };

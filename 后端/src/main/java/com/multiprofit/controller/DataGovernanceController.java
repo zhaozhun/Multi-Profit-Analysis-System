@@ -1,6 +1,6 @@
 package com.multiprofit.controller;
 
-import com.multiprofit.ai.ClaudeClient;
+import com.multiprofit.ai.ModelApiClient;
 import com.multiprofit.dto.ApiResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -17,7 +17,7 @@ public class DataGovernanceController {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private ClaudeClient claudeClient;
+    private ModelApiClient claudeClient;
 
     /**
      * 数据质量扫描

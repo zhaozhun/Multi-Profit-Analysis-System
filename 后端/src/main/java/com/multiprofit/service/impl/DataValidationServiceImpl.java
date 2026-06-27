@@ -1,6 +1,6 @@
 package com.multiprofit.service.impl;
 
-import com.multiprofit.ai.ClaudeClient;
+import com.multiprofit.ai.ModelApiClient;
 import com.multiprofit.model.AlertRecord;
 import com.multiprofit.model.BizLedger;
 import com.multiprofit.service.DataValidationService;
@@ -16,7 +16,7 @@ import java.util.*;
 public class DataValidationServiceImpl implements DataValidationService {
 
     @Autowired
-    private ClaudeClient claudeClient;
+    private ModelApiClient claudeClient;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

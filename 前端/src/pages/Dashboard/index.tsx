@@ -16,8 +16,8 @@ const CHART_HEIGHT = 250;
 
 const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [caliberType] = useState('ASSESS');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [caliberType] = useState('BOOK');
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs('2025-06-01'), dayjs('2025-06-30')]);
   const [quickSelect, setQuickSelect] = useState('thisMonth');
   const [activeTab, setActiveTab] = useState('overview');
   const [kpiCards, setKpiCards] = useState<any[]>([]);

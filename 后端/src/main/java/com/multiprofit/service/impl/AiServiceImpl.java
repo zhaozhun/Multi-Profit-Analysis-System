@@ -1,6 +1,6 @@
 package com.multiprofit.service.impl;
 
-import com.multiprofit.ai.ClaudeClient;
+import com.multiprofit.ai.ModelApiClient;
 import com.multiprofit.dto.AiChatRequest;
 import com.multiprofit.dto.AiChatResponse;
 import com.multiprofit.service.AiService;
@@ -15,7 +15,7 @@ import java.util.Map;
 public class AiServiceImpl implements AiService {
 
     @Autowired
-    private ClaudeClient claudeClient;
+    private ModelApiClient claudeClient;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "context-compression": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/context-compression/SKILL.md",
+      "computedHash": "e66ed44b030836765e0adc6e922154de2a4bb48712b159170c5c0fe211d5a383"
+    },
+    "context-manager": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/context-manager/SKILL.md",
+      "computedHash": "20b32ef68a2dc185c0816c483a78dd6589f356eaf34b5450ecdaf3ad9ca59ccc"
+    }
+  }
+}

@@ -10,6 +10,7 @@ import {
   FileTextOutlined,
   SafetyOutlined,
   AccountBookOutlined,
+  LineChartOutlined,
 } from '@ant-design/icons';
 
 const { Header, Sider, Content } = Layout;
@@ -39,6 +40,11 @@ const MainLayout: React.FC = () => {
       ],
     },
     {
+      key: '/indicator-data',
+      icon: <LineChartOutlined />,
+      label: '指标数据',
+    },
+    {
       key: 'base-data',
       icon: <DatabaseOutlined />,
       label: '主数据管理',
@@ -65,14 +71,6 @@ const MainLayout: React.FC = () => {
             { key: '/base-data/indicator/cost', label: '成本指标' },
             { key: '/base-data/indicator/profit', label: '利润指标' },
             { key: '/base-data/indicator/efficiency', label: '效率指标' },
-          ],
-        },
-        {
-          key: 'indicator-data',
-          label: '📈 指标数据',
-          children: [
-            { key: '/indicator-data/loan', label: '贷款指标' },
-            { key: '/indicator-data/deposit', label: '存款指标' },
           ],
         },
       ],

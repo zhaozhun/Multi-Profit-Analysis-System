@@ -153,6 +153,7 @@ public class DimensionServiceImpl implements DimensionService {
 
             DimensionAnalysisDTO.TreeNode treeNode = new DimensionAnalysisDTO.TreeNode();
             treeNode.setId(nodeId);
+            treeNode.setKey(node.get("code") != null ? String.valueOf(node.get("code")) : "node_" + nodeId);
             treeNode.setCode(node.get("code") != null ? String.valueOf(node.get("code")) : "node_" + nodeId);
             treeNode.setName(String.valueOf(node.get("name")));
             treeNode.setChildCount(childCount);

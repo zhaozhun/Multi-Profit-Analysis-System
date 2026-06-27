@@ -10,7 +10,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/multi_profit?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: mpuser
-    password: ${DB_PASSWORD:your_password}
+    password: ${DB_PASSWORD:<DB_PASSWORD>}
     driver-class-name: com.mysql.cj.jdbc.Driver
     # HikariCP 连接池配置
     hikari:
@@ -68,13 +68,12 @@ logging:
       # 日志总大小上限 1GB
       total-size-cap: 1GB
 
-# AI 配置
+# AI 配置（支持小米、豆包等国产模型）
 ai:
-  anthropic:
-    api-key: ${AI_API_KEY:your_api_key}
-    base-url: https://token-plan-cn.xiaomimimo.com/anthropic
-    model: mimo-v2.5-pro
-    max-tokens: 4096
+  api-key: ${AI_API_KEY:your_api_key}
+  base-url: https://token-plan-cn.xiaomimimo.com/anthropic
+  model: mimo-v2.5-pro
+  max-tokens: 4096
 
 # 数据校验配置
 validation:

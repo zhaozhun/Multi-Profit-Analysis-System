@@ -8,8 +8,9 @@ const api = axios.create({
 api.interceptors.response.use(
   (response) => {
     const { data } = response;
-    if (data.code === 200) {
-      return data.data;
+    // 支持两种返回格式: {code: 200, data: ...} 和 {success: true, data: ...}
+    if (data.code === 200 || data.success === true) {
+      return data.data !== undefined ? data.data : data;
     }
     return Promise.reject(new Error(data.message || '请求失败'));
   },
@@ -73,5 +74,17 @@ export const aiHealthCheck = () =>
 // ==================== 数据校验 ====================
 export const detectAnomaly = (period: string, dimType: string = 'ORG') =>
   api.post('/validation/detect', null, { params: { period, dimType } });
+
+// ==================== 费用分摊（重新导出）====================
+export {
+  factorApi,
+  allocationApi,
+  algorithmApi,
+  costTypeApi,
+  commissionConfigApi,
+  employeeCostApi,
+  operationCostApi,
+  allocationAiApi,
+} from './allocationApi';
 
 export default api;

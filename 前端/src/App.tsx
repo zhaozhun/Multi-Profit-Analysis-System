@@ -42,8 +42,7 @@ import ResultPage from './pages/Allocation/Result';
 import StatisticsPage from './pages/Allocation/Statistics';
 
 // 指标数据
-import LoanIndicator from './pages/BaseData/IndicatorData/LoanIndicator';
-import DepositIndicator from './pages/BaseData/IndicatorData/DepositIndicator';
+import IndicatorDataPage from './pages/BaseData/IndicatorData';
 
 const App: React.FC = () => {
   return (
@@ -94,8 +93,7 @@ const App: React.FC = () => {
           <Route path="allocation/statistics" element={<StatisticsPage />} />
 
           {/* 指标数据 */}
-          <Route path="indicator-data/loan" element={<LoanIndicator />} />
-          <Route path="indicator-data/deposit" element={<DepositIndicator />} />
+          <Route path="indicator-data" element={<IndicatorDataPage />} />
         </Route>
       </Routes>
     </ConfigProvider>

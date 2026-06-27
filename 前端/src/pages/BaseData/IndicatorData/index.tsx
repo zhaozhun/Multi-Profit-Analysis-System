@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Select, Button, Space, message, Tabs } from 'antd';
+import { Card, Row, Col, Select, Button, Space, message, Tabs, Empty } from 'antd';
 import IndicatorCard from './components/IndicatorCard';
 import DetailTable from './components/DetailTable';
 import { getAtomicIndicators, getIndicatorValue } from '../../../services/indicatorApi';
-import type { AtomicIndicator, IndicatorValue } from '../../../services/indicatorApi';
+import type { AtomicIndicator } from '../../../services/indicatorApi';
 
 const { Option } = Select;
 
@@ -92,61 +92,56 @@ const IndicatorDataPage: React.FC = () => {
     setPeriodValue('2024-01');
   };
 
-  const currentIndicators = activeTab === 'asset' ? assetIndicators : liabilityIndicators;
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    // 切换Tab时选中第一个指标
+    const indicators = key === 'asset' ? assetIndicators : liabilityIndicators;
+    if (indicators.length > 0) {
+      setSelectedIndicator(indicators[0].code);
+    }
+  };
+
   const selectedIndicatorConfig = [...assetIndicators, ...liabilityIndicators].find(
     (item) => item.code === selectedIndicator
   );
+
+  const renderIndicatorCards = (indicators: AtomicIndicator[]) => {
+    if (indicators.length === 0) {
+      return <Empty description="暂无指标数据" />;
+    }
+    return (
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        {indicators.map((indicator) => {
+          const data = indicatorData[indicator.code];
+          return (
+            <Col key={indicator.code} xs={24} sm={12} md={8} lg={6} xl={4}>
+              <IndicatorCard
+                code={indicator.code}
+                name={indicator.name}
+                monthlyDailyAvg={data?.monthlyDailyAvg || null}
+                yearlyDailyAvg={data?.yearlyDailyAvg || null}
+                unit={indicator.unit}
+                precision={indicator.precisionVal}
+                isSelected={selectedIndicator === indicator.code}
+                onClick={handleIndicatorClick}
+              />
+            </Col>
+          );
+        })}
+      </Row>
+    );
+  };
 
   const tabItems = [
     {
       key: 'asset',
       label: '资产',
-      children: (
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-          {assetIndicators.map((indicator) => {
-            const data = indicatorData[indicator.code];
-            return (
-              <Col key={indicator.code} xs={24} sm={12} md={8} lg={4}>
-                <IndicatorCard
-                  code={indicator.code}
-                  name={indicator.name}
-                  monthlyDailyAvg={data?.monthlyDailyAvg || null}
-                  yearlyDailyAvg={data?.yearlyDailyAvg || null}
-                  unit={indicator.unit}
-                  precision={indicator.precisionVal}
-                  isSelected={selectedIndicator === indicator.code}
-                  onClick={handleIndicatorClick}
-                />
-              </Col>
-            );
-          })}
-        </Row>
-      ),
+      children: renderIndicatorCards(assetIndicators),
     },
     {
       key: 'liability',
       label: '负债',
-      children: (
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-          {liabilityIndicators.map((indicator) => {
-            const data = indicatorData[indicator.code];
-            return (
-              <Col key={indicator.code} xs={24} sm={12} md={8} lg={6}>
-                <IndicatorCard
-                  code={indicator.code}
-                  name={indicator.name}
-                  monthlyDailyAvg={data?.monthlyDailyAvg || null}
-                  yearlyDailyAvg={data?.yearlyDailyAvg || null}
-                  unit={indicator.unit}
-                  precision={indicator.precisionVal}
-                  isSelected={selectedIndicator === indicator.code}
-                  onClick={handleIndicatorClick}
-                />
-              </Col>
-            );
-          })}
-        </Row>
-      ),
+      children: renderIndicatorCards(liabilityIndicators),
     },
   ];
 
@@ -156,7 +151,7 @@ const IndicatorDataPage: React.FC = () => {
         {/* Tabs切换资产/负债 */}
         <Tabs
           activeKey={activeTab}
-          onChange={setActiveTab}
+          onChange={handleTabChange}
           items={tabItems}
           style={{ marginBottom: 24 }}
         />
@@ -188,7 +183,7 @@ const IndicatorDataPage: React.FC = () => {
         </Card>
 
         {/* 明细数据区域 */}
-        {selectedIndicatorConfig && (
+        {selectedIndicatorConfig ? (
           <Card title={`${selectedIndicatorConfig.name} - 明细数据`}>
             <DetailTable
               indicatorCode={selectedIndicator}
@@ -197,6 +192,10 @@ const IndicatorDataPage: React.FC = () => {
               displayFields={JSON.parse(selectedIndicatorConfig.detailDisplayFields || '[]')}
               groupByField={selectedIndicatorConfig.detailGroupBy || 'stat_date'}
             />
+          </Card>
+        ) : (
+          <Card>
+            <Empty description="请选择一个指标查看明细" />
           </Card>
         )}
       </Card>

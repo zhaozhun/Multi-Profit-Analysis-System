@@ -1,203 +1,152 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Select, Button, Space, message, Tabs, Empty } from 'antd';
-import IndicatorCard from './components/IndicatorCard';
-import DetailTable from './components/DetailTable';
-import { getAtomicIndicators, getIndicatorValue } from '../../../services/indicatorApi';
-import type { AtomicIndicator } from '../../../services/indicatorApi';
-
-const { Option } = Select;
+import { Card, Row, Col, Tabs, Spin, Empty, message } from 'antd';
+import { useNavigate } from 'react-router-dom';
+import { getIndicatorSummary, getCostTypes } from '../../../services/indicatorApi';
 
 interface IndicatorData {
   code: string;
   name: string;
-  monthlyDailyAvg: number | null;
-  yearlyDailyAvg: number | null;
+  value: number | null;
   unit: string;
-  precisionVal: number;
+  period: string;
+}
+
+interface CostType {
+  code: string;
+  name: string;
+  businessLine: string;
 }
 
 const IndicatorDataPage: React.FC = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [assetIndicators, setAssetIndicators] = useState<AtomicIndicator[]>([]);
-  const [liabilityIndicators, setLiabilityIndicators] = useState<AtomicIndicator[]>([]);
-  const [indicatorData, setIndicatorData] = useState<Record<string, IndicatorData>>({});
-  const [selectedIndicator, setSelectedIndicator] = useState<string>('');
-  const [period, setPeriod] = useState<string>('MONTH');
-  const [periodValue, setPeriodValue] = useState<string>('2024-01');
-  const [activeTab, setActiveTab] = useState<string>('asset');
+  const [activeTab, setActiveTab] = useState('ASSET');
+  const [indicators, setIndicators] = useState<IndicatorData[]>([]);
+  const [costTypes, setCostTypes] = useState<CostType[]>([]);
+  const [selectedIndicator, setSelectedIndicator] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchIndicators();
-  }, []);
+    loadIndicators();
+  }, [activeTab]);
 
-  useEffect(() => {
-    if (assetIndicators.length > 0 || liabilityIndicators.length > 0) {
-      fetchIndicatorValues();
-    }
-  }, [assetIndicators, liabilityIndicators, period, periodValue]);
-
-  const fetchIndicators = async () => {
+  const loadIndicators = async () => {
     setLoading(true);
     try {
-      const data = await getAtomicIndicators();
-      const assetList = data.filter((item) => item.businessLine === 'ASSET');
-      const liabilityList = data.filter((item) => item.businessLine === 'LIABILITY');
-      setAssetIndicators(assetList);
-      setLiabilityIndicators(liabilityList);
-      if (assetList.length > 0) {
-        setSelectedIndicator(assetList[0].code);
-      }
+      const data = await getIndicatorSummary(activeTab, '2026-01');
+      setIndicators(data);
     } catch (error) {
-      message.error('获取指标列表失败');
+      console.error('加载指标数据失败:', error);
+      message.error('加载指标数据失败');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchIndicatorValues = async () => {
-    setLoading(true);
-    try {
-      const data: Record<string, IndicatorData> = {};
-      const allIndicators = [...assetIndicators, ...liabilityIndicators];
-      for (const indicator of allIndicators) {
-        const monthlyValue = await getIndicatorValue(indicator.code, 'MONTH', periodValue);
-        const yearlyValue = await getIndicatorValue(indicator.code, 'YEAR', periodValue.substring(0, 4));
-        data[indicator.code] = {
-          code: indicator.code,
-          name: indicator.name,
-          monthlyDailyAvg: monthlyValue.value,
-          yearlyDailyAvg: yearlyValue.value,
-          unit: indicator.unit,
-          precisionVal: indicator.precisionVal,
-        };
-      }
-      setIndicatorData(data);
-    } catch (error) {
-      message.error('获取指标值失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleIndicatorClick = (code: string) => {
+  const handleIndicatorClick = async (code: string) => {
     setSelectedIndicator(code);
+    if (code.includes('OP')) {
+      // 如果是运营成本，加载费用类型
+      try {
+        const types = await getCostTypes(activeTab);
+        setCostTypes(types);
+      } catch (error) {
+        console.error('加载费用类型失败:', error);
+        message.error('加载费用类型失败');
+      }
+    } else {
+      setCostTypes([]);
+    }
   };
 
-  const handleQuery = () => {
-    fetchIndicatorValues();
-  };
-
-  const handleReset = () => {
-    setPeriod('MONTH');
-    setPeriodValue('2024-01');
+  const handleCostTypeClick = (costType: string) => {
+    navigate(`/indicator-data/expense/${costType}`);
   };
 
   const handleTabChange = (key: string) => {
     setActiveTab(key);
-    // 切换Tab时选中第一个指标
-    const indicators = key === 'asset' ? assetIndicators : liabilityIndicators;
-    if (indicators.length > 0) {
-      setSelectedIndicator(indicators[0].code);
-    }
+    setSelectedIndicator(null);
+    setCostTypes([]);
   };
-
-  const selectedIndicatorConfig = [...assetIndicators, ...liabilityIndicators].find(
-    (item) => item.code === selectedIndicator
-  );
-
-  const renderIndicatorCards = (indicators: AtomicIndicator[]) => {
-    if (indicators.length === 0) {
-      return <Empty description="暂无指标数据" />;
-    }
-    return (
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {indicators.map((indicator) => {
-          const data = indicatorData[indicator.code];
-          return (
-            <Col key={indicator.code} xs={24} sm={12} md={8} lg={6} xl={4}>
-              <IndicatorCard
-                code={indicator.code}
-                name={indicator.name}
-                monthlyDailyAvg={data?.monthlyDailyAvg || null}
-                yearlyDailyAvg={data?.yearlyDailyAvg || null}
-                unit={indicator.unit}
-                precision={indicator.precisionVal}
-                isSelected={selectedIndicator === indicator.code}
-                onClick={handleIndicatorClick}
-              />
-            </Col>
-          );
-        })}
-      </Row>
-    );
-  };
-
-  const tabItems = [
-    {
-      key: 'asset',
-      label: '资产',
-      children: renderIndicatorCards(assetIndicators),
-    },
-    {
-      key: 'liability',
-      label: '负债',
-      children: renderIndicatorCards(liabilityIndicators),
-    },
-  ];
 
   return (
     <div style={{ padding: 24 }}>
-      <Card title="指标数据" loading={loading}>
-        {/* Tabs切换资产/负债 */}
-        <Tabs
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          items={tabItems}
-          style={{ marginBottom: 24 }}
-        />
+      <Card title="指标数据">
+        <Tabs activeKey={activeTab} onChange={handleTabChange}>
+          <Tabs.TabPane tab="资产" key="ASSET" />
+          <Tabs.TabPane tab="负债" key="LIABILITY" />
+        </Tabs>
 
-        {/* 筛选条件 */}
-        <Card style={{ marginBottom: 24 }}>
-          <Space>
-            <Select
-              value={period}
-              onChange={setPeriod}
-              style={{ width: 120 }}
-            >
-              <Option value="MONTH">月日均</Option>
-              <Option value="YEAR">年日均</Option>
-            </Select>
-            <Select
-              value={periodValue}
-              onChange={setPeriodValue}
-              style={{ width: 150 }}
-            >
-              <Option value="2024-01">2024年1月</Option>
-              <Option value="2024-02">2024年2月</Option>
-              <Option value="2024-03">2024年3月</Option>
-              <Option value="2024">2024年</Option>
-            </Select>
-            <Button type="primary" onClick={handleQuery}>查询</Button>
-            <Button onClick={handleReset}>重置</Button>
-          </Space>
-        </Card>
+        <Spin spinning={loading}>
+          {/* 一级指标卡片区域 */}
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            {indicators.map((indicator) => (
+              <Col span={6} key={indicator.code}>
+                <Card
+                  hoverable
+                  onClick={() => handleIndicatorClick(indicator.code)}
+                  style={{
+                    borderColor: selectedIndicator === indicator.code ? '#1890ff' : undefined,
+                    backgroundColor: selectedIndicator === indicator.code ? '#e6f7ff' : undefined,
+                  }}
+                >
+                  <Card.Meta
+                    title={indicator.name}
+                    description={
+                      <div>
+                        <div style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>
+                          {indicator.value !== null ? indicator.value.toFixed(2) : '-'}
+                        </div>
+                        <div style={{ color: '#666' }}>{indicator.unit}</div>
+                      </div>
+                    }
+                  />
+                </Card>
+              </Col>
+            ))}
+          </Row>
 
-        {/* 明细数据区域 */}
-        {selectedIndicatorConfig ? (
-          <Card title={`${selectedIndicatorConfig.name} - 明细数据`}>
-            <DetailTable
-              indicatorCode={selectedIndicator}
-              period={period}
-              periodValue={periodValue}
-              displayFields={JSON.parse(selectedIndicatorConfig.detailDisplayFields || '[]')}
-              groupByField={selectedIndicatorConfig.detailGroupBy || 'stat_date'}
-            />
-          </Card>
-        ) : (
-          <Card>
-            <Empty description="请选择一个指标查看明细" />
-          </Card>
-        )}
+          {/* 二级费用类型卡片区域 */}
+          {selectedIndicator && selectedIndicator.includes('OP') && costTypes.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <h3 style={{ marginBottom: 16 }}>费用类型</h3>
+              <Row gutter={[16, 16]}>
+                {costTypes.map((type) => (
+                  <Col span={6} key={type.code}>
+                    <Card
+                      hoverable
+                      onClick={() => handleCostTypeClick(type.code)}
+                    >
+                      <Card.Meta
+                        title={type.name}
+                        description={
+                          <div>
+                            <div>业务条线: {type.businessLine === 'ASSET' ? '资产' : '负债'}</div>
+                          </div>
+                        }
+                      />
+                    </Card>
+                  </Col>
+                ))}
+              </Row>
+            </div>
+          )}
+
+          {/* 指标详情区域 */}
+          {selectedIndicator && !selectedIndicator.includes('OP') && (
+            <div style={{ marginTop: 24 }}>
+              <Card title="指标详情">
+                <p>指标详情区域（待实现）</p>
+              </Card>
+            </div>
+          )}
+
+          {/* 未选择指标时的提示 */}
+          {!selectedIndicator && (
+            <div style={{ marginTop: 24 }}>
+              <Empty description="请选择指标查看详情" />
+            </div>
+          )}
+        </Spin>
       </Card>
     </div>
   );

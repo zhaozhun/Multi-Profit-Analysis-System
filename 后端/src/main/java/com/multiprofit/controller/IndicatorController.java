@@ -1,7 +1,14 @@
 package com.multiprofit.controller;
 
 import com.multiprofit.dto.ApiResponse;
+import com.multiprofit.entity.AtomicIndicator;
+import com.multiprofit.entity.DerivedIndicator;
+import com.multiprofit.mapper.AtomicIndicatorMapper;
+import com.multiprofit.mapper.DerivedIndicatorMapper;
+import com.multiprofit.service.IndicatorCalcService;
+import com.multiprofit.service.IndicatorQueryService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +20,18 @@ public class IndicatorController {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private AtomicIndicatorMapper atomicIndicatorMapper;
+
+    @Autowired
+    private DerivedIndicatorMapper derivedIndicatorMapper;
+
+    @Autowired
+    private IndicatorCalcService indicatorCalcService;
+
+    @Autowired
+    private IndicatorQueryService indicatorQueryService;
 
     /**
      * 查询指标列表
@@ -249,5 +268,88 @@ public class IndicatorController {
                 code, calcPeriod, period, dimName, calcValue
             );
         }
+    }
+
+    // ============================================
+    // 新增：指标体系API
+    // ============================================
+
+    /**
+     * 获取所有原子指标列表
+     */
+    @GetMapping("/atomic")
+    public ResponseEntity<List<AtomicIndicator>> getAtomicIndicators() {
+        List<AtomicIndicator> indicators = atomicIndicatorMapper.selectList(null);
+        return ResponseEntity.ok(indicators);
+    }
+
+    /**
+     * 获取所有派生指标列表
+     */
+    @GetMapping("/derived")
+    public ResponseEntity<List<DerivedIndicator>> getDerivedIndicators() {
+        List<DerivedIndicator> indicators = derivedIndicatorMapper.selectList(null);
+        return ResponseEntity.ok(indicators);
+    }
+
+    /**
+     * 获取指标值
+     */
+    @GetMapping("/value/{code}")
+    public ResponseEntity<Map<String, Object>> getIndicatorValue(
+            @PathVariable String code,
+            @RequestParam String period,
+            @RequestParam String periodValue) {
+        Map<String, Object> result = indicatorQueryService.getIndicatorValue(code, period, periodValue);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取指标趋势
+     */
+    @GetMapping("/trend/{code}")
+    public ResponseEntity<List<Map<String, Object>>> getIndicatorTrend(
+            @PathVariable String code,
+            @RequestParam(defaultValue = "12") int months) {
+        List<Map<String, Object>> trend = indicatorQueryService.getIndicatorTrend(code, months);
+        return ResponseEntity.ok(trend);
+    }
+
+    /**
+     * 获取指标明细（分页）
+     */
+    @GetMapping("/detail/{code}")
+    public ResponseEntity<Map<String, Object>> getIndicatorDetail(
+            @PathVariable String code,
+            @RequestParam String period,
+            @RequestParam String periodValue,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        Map<String, Object> result = indicatorQueryService.getIndicatorDetail(code, period, periodValue, page, size);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 按分组获取明细
+     */
+    @GetMapping("/detail/{code}/group/{groupValue}")
+    public ResponseEntity<Map<String, Object>> getIndicatorDetailByGroup(
+            @PathVariable String code,
+            @PathVariable String groupValue,
+            @RequestParam String period,
+            @RequestParam String periodValue) {
+        Map<String, Object> result = indicatorQueryService.getIndicatorDetailByGroup(code, period, periodValue, groupValue);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 手动触发计算（新接口）
+     */
+    @PostMapping("/calc-new")
+    public ResponseEntity<List<Map<String, Object>>> calcIndicators(
+            @RequestParam String period,
+            @RequestParam String periodValue) {
+        List<Map<String, Object>> results = indicatorCalcService.calcAllIndicators(period, periodValue);
+        return ResponseEntity.ok(results);
     }
 }

@@ -290,12 +290,70 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
         jdbcTemplate.execute(opCostCustomerSql);
 
         // 5.4 计算TOTAL汇总
+        // 运营成本TOTAL
         String totalOpCostSql = "INSERT IGNORE INTO dw_indicator_fact " +
             "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
             "SELECT 'OP_COST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(op_cost) / 10000, 'ASSESS', NOW() " +
             "FROM (SELECT op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
             "UNION ALL SELECT op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t";
         jdbcTemplate.execute(totalOpCostSql);
+
+        // 利息收入TOTAL
+        String totalInterestSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'INTEREST_INCOME', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(loan_monthly_interest) / 10000, 'ASSESS', NOW() " +
+            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
+        jdbcTemplate.execute(totalInterestSql);
+
+        // FTP成本TOTAL
+        String totalFtpCostSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'FTP_COST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(ftp_cost) / 10000, 'ASSESS', NOW() " +
+            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
+        jdbcTemplate.execute(totalFtpCostSql);
+
+        // 风险成本TOTAL
+        String totalRiskCostSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'RISK_COST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(risk_cost) / 10000, 'ASSESS', NOW() " +
+            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
+        jdbcTemplate.execute(totalRiskCostSql);
+
+        // 贷款利润TOTAL
+        String totalLoanProfitSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'LOAN_PROFIT', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(loan_profit) / 10000, 'ASSESS', NOW() " +
+            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
+        jdbcTemplate.execute(totalLoanProfitSql);
+
+        // FTP收入TOTAL
+        String totalFtpIncomeSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'FTP_INCOME', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(ftp_income) / 10000, 'ASSESS', NOW() " +
+            "FROM dwd_deposit_detail WHERE account_period = '" + period + "'";
+        jdbcTemplate.execute(totalFtpIncomeSql);
+
+        // 存款利息支出TOTAL
+        String totalDepositInterestSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'DEPOSIT_INTEREST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(deposit_monthly_interest) / 10000, 'ASSESS', NOW() " +
+            "FROM dwd_deposit_detail WHERE account_period = '" + period + "'";
+        jdbcTemplate.execute(totalDepositInterestSql);
+
+        // 存款利润TOTAL
+        String totalDepositProfitSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'DEPOSIT_PROFIT', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(deposit_profit) / 10000, 'ASSESS', NOW() " +
+            "FROM dwd_deposit_detail WHERE account_period = '" + period + "'";
+        jdbcTemplate.execute(totalDepositProfitSql);
+
+        // 总利润TOTAL = 贷款利润 + 存款利润
+        String totalProfitSql = "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'TOTAL_PROFIT', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', " +
+            "((SELECT COALESCE(SUM(loan_profit), 0) FROM dwd_loan_detail WHERE account_period = '" + period + "') + " +
+            "(SELECT COALESCE(SUM(deposit_profit), 0) FROM dwd_deposit_detail WHERE account_period = '" + period + "')) / 10000, 'ASSESS', NOW()";
+        jdbcTemplate.execute(totalProfitSql);
 
         log.info("ETL SQL执行完成: {}", period);
     }

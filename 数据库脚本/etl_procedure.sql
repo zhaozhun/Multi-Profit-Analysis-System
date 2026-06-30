@@ -223,6 +223,76 @@ BEGIN
     GROUP BY customer_id, customer_name;
 
     -- ============================================================
+    -- 5.8 按各维度汇总运营成本
+    -- ============================================================
+
+    -- 按机构维度汇总运营成本
+    INSERT IGNORE INTO dw_indicator_fact (indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time)
+    SELECT 'OP_COST', p_period, 'MONTH', 'ORG', org_id, org_name,
+           SUM(op_cost) / 10000, 'ASSESS', NOW()
+    FROM (
+        SELECT org_id, org_name, op_cost FROM dwd_loan_detail WHERE account_period = p_period
+        UNION ALL
+        SELECT org_id, org_name, op_cost FROM dwd_deposit_detail WHERE account_period = p_period
+    ) t
+    GROUP BY org_id, org_name;
+
+    -- 按条线维度汇总运营成本
+    INSERT IGNORE INTO dw_indicator_fact (indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time)
+    SELECT 'OP_COST', p_period, 'MONTH', 'BIZ_LINE', biz_line_id, biz_line_name,
+           SUM(op_cost) / 10000, 'ASSESS', NOW()
+    FROM (
+        SELECT biz_line_id, biz_line_name, op_cost FROM dwd_loan_detail WHERE account_period = p_period
+        UNION ALL
+        SELECT biz_line_id, biz_line_name, op_cost FROM dwd_deposit_detail WHERE account_period = p_period
+    ) t
+    GROUP BY biz_line_id, biz_line_name;
+
+    -- 按产品维度汇总运营成本
+    INSERT IGNORE INTO dw_indicator_fact (indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time)
+    SELECT 'OP_COST', p_period, 'MONTH', 'PRODUCT', product_id, product_name,
+           SUM(op_cost) / 10000, 'ASSESS', NOW()
+    FROM (
+        SELECT product_id, product_name, op_cost FROM dwd_loan_detail WHERE account_period = p_period
+        UNION ALL
+        SELECT product_id, product_name, op_cost FROM dwd_deposit_detail WHERE account_period = p_period
+    ) t
+    GROUP BY product_id, product_name;
+
+    -- 按渠道维度汇总运营成本
+    INSERT IGNORE INTO dw_indicator_fact (indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time)
+    SELECT 'OP_COST', p_period, 'MONTH', 'CHANNEL', channel_id, channel_name,
+           SUM(op_cost) / 10000, 'ASSESS', NOW()
+    FROM (
+        SELECT channel_id, channel_name, op_cost FROM dwd_loan_detail WHERE account_period = p_period
+        UNION ALL
+        SELECT channel_id, channel_name, op_cost FROM dwd_deposit_detail WHERE account_period = p_period
+    ) t
+    GROUP BY channel_id, channel_name;
+
+    -- 按客户经理维度汇总运营成本
+    INSERT IGNORE INTO dw_indicator_fact (indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time)
+    SELECT 'OP_COST', p_period, 'MONTH', 'MANAGER', manager_id, manager_name,
+           SUM(op_cost) / 10000, 'ASSESS', NOW()
+    FROM (
+        SELECT manager_id, manager_name, op_cost FROM dwd_loan_detail WHERE account_period = p_period
+        UNION ALL
+        SELECT manager_id, manager_name, op_cost FROM dwd_deposit_detail WHERE account_period = p_period
+    ) t
+    GROUP BY manager_id, manager_name;
+
+    -- 按客户维度汇总运营成本
+    INSERT IGNORE INTO dw_indicator_fact (indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time)
+    SELECT 'OP_COST', p_period, 'MONTH', 'CUSTOMER', customer_id, customer_name,
+           SUM(op_cost) / 10000, 'ASSESS', NOW()
+    FROM (
+        SELECT customer_id, customer_name, op_cost FROM dwd_loan_detail WHERE account_period = p_period
+        UNION ALL
+        SELECT customer_id, customer_name, op_cost FROM dwd_deposit_detail WHERE account_period = p_period
+    ) t
+    GROUP BY customer_id, customer_name;
+
+    -- ============================================================
     -- 6. 计算TOTAL汇总（从ORG维度汇总）
     -- ============================================================
     INSERT IGNORE INTO dw_indicator_fact (indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time)

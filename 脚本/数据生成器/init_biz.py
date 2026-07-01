@@ -22,13 +22,13 @@ def get_customers(cursor):
     return cursor.fetchall()
 
 def generate_loan_biz(cursor, conn, start_idx=1, count=LOAN_COUNT):
-    """生成贷款存量业务"""
-    orgs = get_all_level_nodes(cursor, "dim_organization")
-    depts = get_all_level_nodes(cursor, "dim_dept")
-    products = get_all_level_nodes(cursor, "dim_product")
-    channels = get_all_level_nodes(cursor, "dim_channel")
-    managers = get_all_level_nodes(cursor, "dim_manager")
-    bizlines = get_all_level_nodes(cursor, "dim_biz_line")
+    """生成贷款存量业务(只选叶子节点 level=3)"""
+    orgs = get_leaf_nodes(cursor, "dim_organization", 3)
+    depts = get_leaf_nodes(cursor, "dim_dept", 3)
+    products = get_leaf_nodes(cursor, "dim_product", 3)
+    channels = get_leaf_nodes(cursor, "dim_channel", 3)
+    managers = get_leaf_nodes(cursor, "dim_manager", 3)
+    bizlines = get_leaf_nodes(cursor, "dim_biz_line", 3)
     customers = get_customers(cursor)
 
     biz_list = []
@@ -66,13 +66,13 @@ def generate_loan_biz(cursor, conn, start_idx=1, count=LOAN_COUNT):
     return biz_list
 
 def generate_deposit_biz(cursor, conn, start_idx=1, count=DEPOSIT_COUNT):
-    """生成存款存量业务"""
-    orgs = get_all_level_nodes(cursor, "dim_organization")
-    depts = get_all_level_nodes(cursor, "dim_dept")
-    products = get_all_level_nodes(cursor, "dim_product")
-    channels = get_all_level_nodes(cursor, "dim_channel")
-    managers = get_all_level_nodes(cursor, "dim_manager")
-    bizlines = get_all_level_nodes(cursor, "dim_biz_line")
+    """生成存款存量业务(只选叶子节点 level=3)"""
+    orgs = get_leaf_nodes(cursor, "dim_organization", 3)
+    depts = get_leaf_nodes(cursor, "dim_dept", 3)
+    products = get_leaf_nodes(cursor, "dim_product", 3)
+    channels = get_leaf_nodes(cursor, "dim_channel", 3)
+    managers = get_leaf_nodes(cursor, "dim_manager", 3)
+    bizlines = get_leaf_nodes(cursor, "dim_biz_line", 3)
     customers = get_customers(cursor)
 
     biz_list = []

@@ -224,46 +224,50 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
             String dimTable = dimTables[i];
             String loanDimCol = getDimIdColumn(dimType);
 
-            // 层级上卷: level 1/2/3 全部写入
+            // 层级上卷: 沿parent_id链正确上卷
             for (int level = 3; level >= 1; level--) {
-                // 贷款指标: LOAN_MONTHLY_INTEREST, LOAN_FTP_COST, LOAN_RISK_COST, LOAN_OP_COST, LOAN_MONTHLY_PROFIT
+                // 贷款用 dl 别名, 存款用 dd 别名
+                String loanJoin, depositJoin;
+                if (level == 3) {
+                    loanJoin = "JOIN " + dimTable + " d ON dl." + loanDimCol + " = d.id";
+                    depositJoin = "JOIN " + dimTable + " d ON dd." + loanDimCol + " = d.id";
+                } else if (level == 2) {
+                    loanJoin = "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
+                               "JOIN " + dimTable + " d ON leaf.parent_id = d.id";
+                    depositJoin = "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
+                                  "JOIN " + dimTable + " d ON leaf.parent_id = d.id";
+                } else {
+                    loanJoin = "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
+                               "JOIN " + dimTable + " mid ON leaf.parent_id = mid.id " +
+                               "JOIN " + dimTable + " d ON mid.parent_id = d.id";
+                    depositJoin = "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
+                                  "JOIN " + dimTable + " mid ON leaf.parent_id = mid.id " +
+                                  "JOIN " + dimTable + " d ON mid.parent_id = d.id";
+                }
+
+                // 贷款指标
                 String loanSql =
                     "INSERT IGNORE INTO dw_indicator_fact " +
                     "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
                     "SELECT 'LOAN_MONTHLY_INTEREST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.loan_monthly_interest)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_loan_detail dl " +
-                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dl.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name " +
+                    "FROM dwd_loan_detail dl " + loanJoin + " " +
+                    "WHERE dl.account_period = ? AND d.level = ? GROUP BY d.id, d.name " +
                     "UNION ALL " +
                     "SELECT 'LOAN_FTP_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.ftp_cost)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_loan_detail dl " +
-                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dl.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name " +
+                    "FROM dwd_loan_detail dl " + loanJoin + " " +
+                    "WHERE dl.account_period = ? AND d.level = ? GROUP BY d.id, d.name " +
                     "UNION ALL " +
                     "SELECT 'LOAN_RISK_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.risk_cost)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_loan_detail dl " +
-                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dl.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name " +
+                    "FROM dwd_loan_detail dl " + loanJoin + " " +
+                    "WHERE dl.account_period = ? AND d.level = ? GROUP BY d.id, d.name " +
                     "UNION ALL " +
                     "SELECT 'LOAN_OP_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.op_cost)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_loan_detail dl " +
-                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dl.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name " +
+                    "FROM dwd_loan_detail dl " + loanJoin + " " +
+                    "WHERE dl.account_period = ? AND d.level = ? GROUP BY d.id, d.name " +
                     "UNION ALL " +
                     "SELECT 'LOAN_MONTHLY_PROFIT', ?, 'MONTH', ?, d.id, d.name, SUM(dl.loan_profit)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_loan_detail dl " +
-                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dl.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name";
+                    "FROM dwd_loan_detail dl " + loanJoin + " " +
+                    "WHERE dl.account_period = ? AND d.level = ? GROUP BY d.id, d.name";
                 jdbcTemplate.update(loanSql,
                     period, dimType, period, level,
                     period, dimType, period, level,
@@ -271,37 +275,25 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
                     period, dimType, period, level,
                     period, dimType, period, level);
 
-                // 存款指标: FTP_MONTHLY_INCOME, INTEREST_MONTHLY_EXPENSE, DEPOSIT_OP_COST, DEPOSIT_MONTHLY_PROFIT
+                // 存款指标
                 String depositSql =
                     "INSERT IGNORE INTO dw_indicator_fact " +
                     "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
                     "SELECT 'FTP_MONTHLY_INCOME', ?, 'MONTH', ?, d.id, d.name, SUM(dd.ftp_income)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_deposit_detail dd " +
-                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dd.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name " +
+                    "FROM dwd_deposit_detail dd " + depositJoin + " " +
+                    "WHERE dd.account_period = ? AND d.level = ? GROUP BY d.id, d.name " +
                     "UNION ALL " +
                     "SELECT 'INTEREST_MONTHLY_EXPENSE', ?, 'MONTH', ?, d.id, d.name, SUM(dd.deposit_monthly_interest)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_deposit_detail dd " +
-                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dd.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name " +
+                    "FROM dwd_deposit_detail dd " + depositJoin + " " +
+                    "WHERE dd.account_period = ? AND d.level = ? GROUP BY d.id, d.name " +
                     "UNION ALL " +
                     "SELECT 'DEPOSIT_OP_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dd.op_cost)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_deposit_detail dd " +
-                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dd.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name " +
+                    "FROM dwd_deposit_detail dd " + depositJoin + " " +
+                    "WHERE dd.account_period = ? AND d.level = ? GROUP BY d.id, d.name " +
                     "UNION ALL " +
                     "SELECT 'DEPOSIT_MONTHLY_PROFIT', ?, 'MONTH', ?, d.id, d.name, SUM(dd.deposit_profit)/10000, 'ASSESS', NOW() " +
-                    "FROM dwd_deposit_detail dd " +
-                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
-                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
-                    "WHERE dd.account_period = ? AND d.level = ? " +
-                    "GROUP BY d.id, d.name";
+                    "FROM dwd_deposit_detail dd " + depositJoin + " " +
+                    "WHERE dd.account_period = ? AND d.level = ? GROUP BY d.id, d.name";
                 jdbcTemplate.update(depositSql,
                     period, dimType, period, level,
                     period, dimType, period, level,
@@ -309,6 +301,21 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
                     period, dimType, period, level);
             }
         }
+
+        // === 5.5. 后计算 TOTAL_MONTHLY_PROFIT = LOAN_MONTHLY_PROFIT + DEPOSIT_MONTHLY_PROFIT ===
+        String totalProfitSql =
+            "INSERT IGNORE INTO dw_indicator_fact " +
+            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+            "SELECT 'TOTAL_MONTHLY_PROFIT', ?, 'MONTH', l.dim_type, l.dim_id, l.dim_name, " +
+            "(l.calc_value + COALESCE(d.calc_value, 0)), 'ASSESS', NOW() " +
+            "FROM dw_indicator_fact l " +
+            "LEFT JOIN dw_indicator_fact d ON l.dim_type = d.dim_type AND l.dim_id = d.dim_id " +
+            "AND l.period = d.period AND l.period_type = d.period_type " +
+            "AND d.indicator_code = 'DEPOSIT_MONTHLY_PROFIT' " +
+            "WHERE l.period = ? AND l.period_type = 'MONTH' " +
+            "AND l.indicator_code = 'LOAN_MONTHLY_PROFIT' " +
+            "AND l.dim_type != 'TOTAL'";
+        jdbcTemplate.update(totalProfitSql, period, period);
 
         // === 6. DWS MONTH: TOTAL汇总 ===
         insertTotalMonthIndicators(period);

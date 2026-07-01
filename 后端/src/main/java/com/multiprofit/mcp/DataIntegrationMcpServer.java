@@ -125,9 +125,9 @@ public class DataIntegrationMcpServer {
 
     /**
      * MCP工具：维度关联
-     * 将维度编码关联到dimension_master
+     * 将维度编码关联到dim_organization
      */
-    @McpTool(name = "link_dimensions", description = "将维度编码关联到dimension_master")
+    @McpTool(name = "link_dimensions", description = "将维度编码关联到dim_organization")
     public Map<String, Object> linkDimensions(
             List<Map<String, Object>> data,
             Map<String, String> dimMappings) {
@@ -322,7 +322,7 @@ public class DataIntegrationMcpServer {
      * 查找维度编码
      */
     private String findDimensionCode(String dimType, String value) {
-        String sql = "SELECT dim_code FROM dimension_master WHERE dim_type = ? AND (dim_code = ? OR dim_name = ?)";
+        String sql = "SELECT dim_code FROM dim_organization WHERE dim_type = ? AND (dim_code = ? OR dim_name = ?)";
         List<String> codes = jdbcTemplate.queryForList(sql, String.class, dimType, value, value);
         return codes.isEmpty() ? null : codes.get(0);
     }

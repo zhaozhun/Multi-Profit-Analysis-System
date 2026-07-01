@@ -173,7 +173,7 @@ public class ReportMcpServer {
         Map<String, Object> brief = new HashMap<>();
 
         // 查询整体数据
-        String sql = "SELECT SUM(revenue) as revenue, SUM(cost) as cost, SUM(profit) as profit FROM biz_ledger WHERE period = ?";
+        String sql = "SELECT SUM(revenue) as revenue, SUM(cost) as cost, SUM(profit) as profit FROM dw_indicator_fact WHERE period = ?";
         Map<String, Object> data = jdbcTemplate.queryForMap(sql, period);
 
         double revenue = toDouble(data.get("revenue"));

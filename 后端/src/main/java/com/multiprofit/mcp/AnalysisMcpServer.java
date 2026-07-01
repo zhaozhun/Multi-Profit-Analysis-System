@@ -69,7 +69,7 @@ public class AnalysisMcpServer {
 
         // 查询当期数据
         String currentSql = "SELECT " + dimension.toLowerCase() + ", SUM(" + targetMetric.toLowerCase() + ") as metric_value " +
-                           "FROM biz_ledger WHERE period = ? GROUP BY " + dimension.toLowerCase();
+                           "FROM dw_indicator_fact WHERE period = ? GROUP BY " + dimension.toLowerCase();
         List<Map<String, Object>> currentData = jdbcTemplate.queryForList(currentSql, currentPeriod);
 
         // 查询基期数据

@@ -66,12 +66,12 @@ public class FunctionRegistry {
             return bizDataMcp.queryMasterData(dimType, parentCode);
         });
 
-        register("query_biz_ledger", "查询业务台账明细数据", params -> {
+        register("query_indicator_fact", "查询业务台账明细数据", params -> {
             String period = getString(params, "period");
             Map<String, String> dimensionFilters = getMap(params, "dimension_filters");
             int page = getInt(params, "page", 1);
             int size = getInt(params, "size", 10);
-            return bizDataMcp.queryBizLedger(period, dimensionFilters, page, size);
+            return bizDataMcp.queryIndicatorFact(period, dimensionFilters, page, size);
         });
 
         // 分析算法MCP工具
@@ -397,7 +397,7 @@ public class FunctionRegistry {
                 required.add("dim_type");
                 break;
 
-            case "query_biz_ledger":
+            case "query_indicator_fact":
                 properties.put("period", createStringProperty("期间"));
                 properties.put("dimension_filters", createObjectProperty("维度过滤"));
                 properties.put("page", createIntegerProperty("页码"));

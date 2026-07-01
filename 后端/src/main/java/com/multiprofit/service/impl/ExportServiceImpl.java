@@ -47,8 +47,8 @@ public class ExportServiceImpl implements ExportService {
               sum(bl.risk_cost) as risk_cost, sum(bl.op_cost) as op_cost,
               sum(bl.net_profit) as net_profit,
               sum(bl.loan_profit) as loan_profit, sum(bl.deposit_profit) as deposit_profit
-            FROM biz_ledger bl
-            JOIN dimension_master dm ON bl.%s = dm.id
+            FROM dw_indicator_fact bl
+            JOIN dim_organization dm ON bl.%s = dm.id
             WHERE bl.stat_date >= ? AND bl.stat_date <= ? AND bl.caliber_type = ?
             GROUP BY dm.name, dm.code, dm.level
             ORDER BY dm.level, net_profit DESC
@@ -71,12 +71,12 @@ public class ExportServiceImpl implements ExportService {
             "ch.name as channel_name, mgr.name as manager_name, " +
             "bl.biz_amount, bl.revenue, bl.interest_income, " +
             "bl.fee_income, bl.ftp_cost, bl.risk_cost, bl.op_cost, bl.net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
-            "LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
-            "LEFT JOIN dimension_master biz_line ON bl.biz_line_id = biz_line.id " +
-            "LEFT JOIN dimension_master ch ON bl.channel_id = ch.id " +
-            "LEFT JOIN dimension_master mgr ON bl.manager_id = mgr.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
+            "LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
+            "LEFT JOIN dim_organization biz_line ON bl.biz_line_id = biz_line.id " +
+            "LEFT JOIN dim_organization ch ON bl.channel_id = ch.id " +
+            "LEFT JOIN dim_organization mgr ON bl.manager_id = mgr.id " +
             "WHERE bl.account_period = ?"
         );
 
@@ -136,8 +136,8 @@ public class ExportServiceImpl implements ExportService {
             "sum(bl.net_profit) as net_profit, " +
             "CASE WHEN sum(bl.revenue) > 0 THEN round(sum(bl.ftp_cost+bl.risk_cost+bl.op_cost)*100.0/sum(bl.revenue),2) ELSE 0 end as cost_income_ratio, " +
             "CASE WHEN sum(bl.revenue) > 0 THEN round(sum(bl.net_profit)*100.0/sum(bl.revenue),2) ELSE 0 end as profit_margin " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY org.name ORDER BY net_profit DESC",
             period, caliberType
@@ -159,8 +159,8 @@ public class ExportServiceImpl implements ExportService {
             "sum(bl.biz_amount) as biz_amount, sum(bl.revenue) as revenue, " +
             "sum(bl.ftp_cost) as ftp_cost, sum(bl.risk_cost) as risk_cost, sum(bl.op_cost) as op_cost, " +
             "sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY prod.name ORDER BY net_profit DESC",
             period, caliberType
@@ -184,7 +184,7 @@ public class ExportServiceImpl implements ExportService {
             "sum(op_cost) as op_cost, sum(net_profit) as net_profit, " +
             "sum(loan_revenue) as loan_revenue, sum(loan_profit) as loan_profit, " +
             "sum(deposit_revenue) as deposit_revenue, sum(deposit_profit) as deposit_profit " +
-            "FROM biz_ledger WHERE account_period = '%s' AND caliber_type = '%s'",
+            "FROM dw_indicator_fact WHERE account_period = '%s' AND caliber_type = '%s'",
             period, caliberType
         );
 
@@ -229,8 +229,8 @@ public class ExportServiceImpl implements ExportService {
     private void createOrgRankingSheet(Sheet sheet, String period, String caliberType) {
         String sql = String.format(
             "SELECT org.name as name, sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY org.name ORDER BY net_profit DESC LIMIT 10",
             period, caliberType
@@ -259,8 +259,8 @@ public class ExportServiceImpl implements ExportService {
     private void createProductRankingSheet(Sheet sheet, String period, String caliberType) {
         String sql = String.format(
             "SELECT prod.name as name, sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY prod.name ORDER BY net_profit DESC LIMIT 10",
             period, caliberType
@@ -368,8 +368,8 @@ public class ExportServiceImpl implements ExportService {
             "sum(bl.revenue) as revenue, sum(bl.ftp_cost) as ftp_cost, " +
             "sum(bl.risk_cost) as risk_cost, sum(bl.op_cost) as op_cost, " +
             "sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY org.name ORDER BY net_profit DESC",
             period, caliberType
@@ -405,8 +405,8 @@ public class ExportServiceImpl implements ExportService {
             "sum(bl.biz_amount) as biz_amount, sum(bl.revenue) as revenue, " +
             "sum(bl.ftp_cost) as ftp_cost, sum(bl.risk_cost) as risk_cost, " +
             "sum(bl.op_cost) as op_cost, sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY prod.name ORDER BY net_profit DESC",
             period, caliberType
@@ -441,9 +441,9 @@ public class ExportServiceImpl implements ExportService {
         String sql = String.format(
             "SELECT mgr.name as name, org.name as org_name, " +
             "sum(bl.revenue) as revenue, sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master mgr ON bl.manager_id = mgr.id " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization mgr ON bl.manager_id = mgr.id " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY mgr.name, org.name ORDER BY net_profit DESC",
             period, caliberType

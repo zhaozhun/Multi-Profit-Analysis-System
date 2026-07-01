@@ -85,7 +85,7 @@ public class AiServiceImpl implements AiService {
             "  sum(risk_cost) as total_risk, " +
             "  sum(op_cost) as total_op, " +
             "  sum(net_profit) as total_profit " +
-            "FROM biz_ledger WHERE account_period = '%s'",
+            "FROM dw_indicator_fact WHERE account_period = '%s'",
             period
         );
 
@@ -127,7 +127,7 @@ public class AiServiceImpl implements AiService {
             "规则：\n" +
             "1. 只返回SQL语句，不要其他内容\n" +
             "2. 使用ClickHouse语法\n" +
-            "3. 表名：biz_ledger\n" +
+            "3. 表名：dw_indicator_fact\n" +
             "4. 时间字段用account_period（格式yyyy-MM）\n\n" +
             "用户问题：%s",
             schemaInfo, question
@@ -157,7 +157,7 @@ public class AiServiceImpl implements AiService {
         return String.format(
             "你是ClickHouse SQL专家。根据表结构将问题转为SQL。\n" +
             "表结构：\n%s\n上下文：%s\n\n" +
-            "规则：只返回SQL，表名biz_ledger，时间字段account_period(yyyy-MM)。\n" +
+            "规则：只返回SQL，表名dw_indicator_fact，时间字段account_period(yyyy-MM)。\n" +
             "问题：%s",
             schema, context, question
         );
@@ -181,7 +181,7 @@ public class AiServiceImpl implements AiService {
     }
 
     private String getClickHouseSchema() {
-        return "biz_ledger表字段：\n" +
+        return "dw_indicator_fact表字段：\n" +
                "- biz_id: 业务编号\n" +
                "- account_period: 账期(yyyy-MM)\n" +
                "- org_code/org_name: 机构编码/名称\n" +

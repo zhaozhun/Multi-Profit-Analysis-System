@@ -50,7 +50,7 @@ public class BizDataMcpServer {
             sql.append(", SUM(").append(metric.toLowerCase()).append(") as ").append(metric.toLowerCase());
         }
 
-        sql.append(" FROM biz_ledger WHERE period = ?");
+        sql.append(" FROM dw_indicator_fact WHERE period = ?");
 
         List<Object> params = new ArrayList<>();
         params.add(period);
@@ -94,7 +94,7 @@ public class BizDataMcpServer {
         // 查询子维度数据
         String sql = "SELECT " + childDim.toLowerCase() + ", " +
                     "SUM(revenue) as revenue, SUM(cost) as cost, SUM(profit) as profit " +
-                    "FROM biz_ledger " +
+                    "FROM dw_indicator_fact " +
                     "WHERE period = ? AND " + parentDim.toLowerCase() + " = ? " +
                     "GROUP BY " + childDim.toLowerCase();
 
@@ -126,7 +126,7 @@ public class BizDataMcpServer {
 
         // 查询当期数据
         String currentSql = "SELECT SUM(revenue) as revenue, SUM(cost) as cost, SUM(profit) as profit " +
-                           "FROM biz_ledger WHERE period = ? AND " + dimType.toLowerCase() + " = ?";
+                           "FROM dw_indicator_fact WHERE period = ? AND " + dimType.toLowerCase() + " = ?";
         Map<String, Object> currentData = jdbcTemplate.queryForMap(currentSql, currentPeriod, dimValue);
 
         // 查询基期数据
@@ -178,14 +178,14 @@ public class BizDataMcpServer {
      * MCP工具：查询业务台账
      * 查询业务台账明细数据
      */
-    @McpTool(name = "query_biz_ledger", description = "查询业务台账明细数据")
-    public Map<String, Object> queryBizLedger(
+    @McpTool(name = "query_indicator_fact", description = "查询业务台账明细数据")
+    public Map<String, Object> queryIndicatorFact(
             String period,
             Map<String, String> dimensionFilters,
             int page,
             int size) {
 
-        StringBuilder sql = new StringBuilder("SELECT * FROM biz_ledger WHERE period = ?");
+        StringBuilder sql = new StringBuilder("SELECT * FROM dw_indicator_fact WHERE period = ?");
         List<Object> params = new ArrayList<>();
         params.add(period);
 

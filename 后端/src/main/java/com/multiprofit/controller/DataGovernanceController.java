@@ -89,13 +89,13 @@ public class DataGovernanceController {
 
         // 检查必填字段空值（ID字段）
         Integer nullCount = jdbcTemplate.queryForObject(
-            "SELECT count(*) FROM biz_ledger WHERE account_period = '" + period + "' " +
+            "SELECT count(*) FROM dw_indicator_fact WHERE account_period = '" + period + "' " +
             "AND (org_id IS NULL OR product_id IS NULL OR manager_id IS NULL)",
             Integer.class
         );
 
         Integer totalCount = jdbcTemplate.queryForObject(
-            "SELECT count(*) FROM biz_ledger WHERE account_period = '" + period + "'",
+            "SELECT count(*) FROM dw_indicator_fact WHERE account_period = '" + period + "'",
             Integer.class
         );
 
@@ -124,7 +124,7 @@ public class DataGovernanceController {
 
         // 检查利润公式：净利润 = 收入 - FTP - 风险 - 运营
         Integer mismatchCount = jdbcTemplate.queryForObject(
-            "SELECT count(*) FROM biz_ledger WHERE account_period = '" + period + "' " +
+            "SELECT count(*) FROM dw_indicator_fact WHERE account_period = '" + period + "' " +
             "AND ABS(net_profit - (revenue - ftp_cost - risk_cost - op_cost)) > 0.01",
             Integer.class
         );
@@ -157,7 +157,7 @@ public class DataGovernanceController {
             "SELECT count(*) FROM (" +
             "  SELECT org_id, account_period, sum(net_profit) as profit," +
             "    LAG(sum(net_profit)) OVER (PARTITION BY org_id ORDER BY account_period) as prev_profit" +
-            "  FROM biz_ledger GROUP BY org_id, account_period" +
+            "  FROM dw_indicator_fact GROUP BY org_id, account_period" +
             ") t WHERE account_period = '" + period + "' AND prev_profit IS NOT NULL " +
             "AND ABS((profit - prev_profit) / NULLIF(prev_profit, 0)) > 0.5",
             Integer.class
@@ -187,7 +187,7 @@ public class DataGovernanceController {
 
         // 检查数据是否更新到最新期间
         String latestPeriod = jdbcTemplate.queryForObject(
-            "SELECT MAX(account_period) FROM biz_ledger", String.class
+            "SELECT MAX(account_period) FROM dw_indicator_fact", String.class
         );
 
         int score = 100;
@@ -213,9 +213,9 @@ public class DataGovernanceController {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
             "SELECT bl.biz_id, org.name as org_name, prod.name as product_name, bl.net_profit, " +
             "(bl.revenue - bl.ftp_cost - bl.risk_cost - bl.op_cost) as expected_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
-            "LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
+            "LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
             "WHERE bl.account_period = '" + period + "' " +
             "AND ABS(bl.net_profit - (bl.revenue - bl.ftp_cost - bl.risk_cost - bl.op_cost)) > 0.01 LIMIT 5"
         );
@@ -244,15 +244,15 @@ public class DataGovernanceController {
 
         // 检查各机构环比变化
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '" + period + "' GROUP BY org.name"
         );
 
         String prevPeriod = getPreviousMonth(period);
         List<Map<String, Object>> prevRows = jdbcTemplate.queryForList(
-            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '" + prevPeriod + "' GROUP BY org.name"
         );
 
@@ -294,7 +294,7 @@ public class DataGovernanceController {
 
         // 检查缺少客户经理的记录
         Integer missingManager = jdbcTemplate.queryForObject(
-            "SELECT count(*) FROM biz_ledger WHERE account_period = '" + period + "' " +
+            "SELECT count(*) FROM dw_indicator_fact WHERE account_period = '" + period + "' " +
             "AND (manager_id IS NULL OR manager_id = 0)",
             Integer.class
         );
@@ -346,15 +346,15 @@ public class DataGovernanceController {
         String prevPeriod = getPreviousMonth(period);
 
         List<Map<String, Object>> current = jdbcTemplate.queryForList(
-            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '" + period + "' GROUP BY org.name"
         );
 
         Map<String, Double> prevMap = new HashMap<>();
         List<Map<String, Object>> prev = jdbcTemplate.queryForList(
-            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "SELECT org.name as org_name, sum(bl.net_profit) as profit FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '" + prevPeriod + "' GROUP BY org.name"
         );
         for (Map<String, Object> row : prev) {
@@ -399,8 +399,8 @@ public class DataGovernanceController {
             "SELECT org.name as org_name, " +
             "sum(bl.revenue) as revenue, " +
             "sum(bl.ftp_cost + bl.risk_cost + bl.op_cost) as total_cost " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '" + period + "' " +
             "GROUP BY org.name"
         );
@@ -437,8 +437,8 @@ public class DataGovernanceController {
             "sum(bl.interest_income) as ftp_income, " +
             "sum(bl.interest_expense) as cust_interest, " +
             "sum(bl.biz_amount) as deposit_balance " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '" + period + "' AND bl.product_type = 'DEPOSIT' " +
             "GROUP BY org.name"
         );
@@ -477,8 +477,8 @@ public class DataGovernanceController {
             "SELECT org.name as org_name, " +
             "sum(bl.interest_income) as loan_income, " +
             "sum(bl.risk_cost) as risk_cost " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '" + period + "' AND bl.product_type = 'LOAN' " +
             "GROUP BY org.name"
         );

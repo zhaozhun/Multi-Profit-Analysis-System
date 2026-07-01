@@ -32,12 +32,12 @@ public class ReportController {
             "ch.name as channel_name, mgr.name as manager_name, " +
             "bl.biz_amount, bl.revenue, bl.interest_income, " +
             "bl.fee_income, bl.ftp_cost, bl.risk_cost, bl.op_cost, bl.net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
-            "LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
-            "LEFT JOIN dimension_master biz_line ON bl.biz_line_id = biz_line.id " +
-            "LEFT JOIN dimension_master ch ON bl.channel_id = ch.id " +
-            "LEFT JOIN dimension_master mgr ON bl.manager_id = mgr.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
+            "LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
+            "LEFT JOIN dim_organization biz_line ON bl.biz_line_id = biz_line.id " +
+            "LEFT JOIN dim_organization ch ON bl.channel_id = ch.id " +
+            "LEFT JOIN dim_organization mgr ON bl.manager_id = mgr.id " +
             "WHERE bl.account_period = '" + period + "'"
         );
 
@@ -54,7 +54,7 @@ public class ReportController {
         sql.append(" ORDER BY bl.net_profit DESC");
 
         // 总数
-        String countSql = "SELECT count(*) FROM biz_ledger WHERE account_period = '" + period + "'";
+        String countSql = "SELECT count(*) FROM dw_indicator_fact WHERE account_period = '" + period + "'";
         Integer total = jdbcTemplate.queryForObject(countSql, Integer.class);
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString());
@@ -84,8 +84,8 @@ public class ReportController {
             "sum(bl.net_profit) as net_profit, " +
             "CASE WHEN sum(bl.revenue) > 0 THEN round(sum(bl.ftp_cost+bl.risk_cost+bl.op_cost)*100.0/sum(bl.revenue),2) ELSE 0 end as cost_income_ratio, " +
             "CASE WHEN sum(bl.revenue) > 0 THEN round(sum(bl.net_profit)*100.0/sum(bl.revenue),2) ELSE 0 end as profit_margin " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY org.name ORDER BY net_profit DESC",
             period, caliberType
@@ -129,8 +129,8 @@ public class ReportController {
             "sum(bl.biz_amount) as biz_amount, sum(bl.revenue) as revenue, " +
             "sum(bl.ftp_cost) as ftp_cost, sum(bl.risk_cost) as risk_cost, sum(bl.op_cost) as op_cost, " +
             "sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY prod.name ORDER BY net_profit DESC",
             period, caliberType
@@ -155,9 +155,9 @@ public class ReportController {
             "SELECT mgr.name as name, org.name as org_name, " +
             "count(distinct bl.customer_id) as customer_cnt, " +
             "sum(bl.revenue) as revenue, sum(bl.net_profit) as net_profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master mgr ON bl.manager_id = mgr.id " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization mgr ON bl.manager_id = mgr.id " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY mgr.name, org.name ORDER BY net_profit DESC",
             period, caliberType
@@ -192,7 +192,7 @@ public class ReportController {
         for (String dim : rowDims) {
             String joinAlias = dim.toLowerCase() + "_dm";
             String idCol = getDimIdColumn(dim);
-            String joinSql = String.format("LEFT JOIN dimension_master %s ON bl.%s = %s.id", joinAlias, idCol, joinAlias);
+            String joinSql = String.format("LEFT JOIN dim_organization %s ON bl.%s = %s.id", joinAlias, idCol, joinAlias);
             joinClause.append(" ").append(joinSql);
             selectCols.add(joinAlias + ".name as " + dim.toLowerCase());
             groupByCols.add(joinAlias + ".name");
@@ -205,7 +205,7 @@ public class ReportController {
         }
 
         String sql = String.format(
-            "SELECT %s FROM biz_ledger bl %s WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' GROUP BY %s ORDER BY %s",
+            "SELECT %s FROM dw_indicator_fact bl %s WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' GROUP BY %s ORDER BY %s",
             String.join(", ", selectCols), joinClause.toString(), period, caliberType,
             String.join(", ", groupByCols), groupByCols.get(0)
         );
@@ -247,7 +247,7 @@ public class ReportController {
             "sum(net_profit) as total_profit, " +
             "sum(loan_revenue) as loan_revenue, sum(loan_profit) as loan_profit, " +
             "sum(deposit_revenue) as deposit_revenue, sum(deposit_profit) as deposit_profit " +
-            "FROM biz_ledger WHERE account_period = '%s' AND caliber_type = '%s'",
+            "FROM dw_indicator_fact WHERE account_period = '%s' AND caliber_type = '%s'",
             period, caliberType
         );
         Map<String, Object> overview = jdbcTemplate.queryForMap(overviewSql);
@@ -257,7 +257,7 @@ public class ReportController {
         String orgRankSql = String.format(
             "SELECT org.name, sum(bl.net_profit) as profit, " +
             "CASE WHEN sum(bl.revenue) > 0 THEN round(sum(bl.net_profit)*100.0/sum(bl.revenue),2) ELSE 0 end as margin " +
-            "FROM biz_ledger bl LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY org.name ORDER BY profit DESC",
             period, caliberType
@@ -268,7 +268,7 @@ public class ReportController {
         // 3. 产品排名
         String prodRankSql = String.format(
             "SELECT prod.name, sum(bl.biz_amount) as amount, sum(bl.net_profit) as profit " +
-            "FROM biz_ledger bl LEFT JOIN dimension_master prod ON bl.product_id = prod.id " +
+            "FROM dw_indicator_fact bl LEFT JOIN dim_organization prod ON bl.product_id = prod.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY prod.name ORDER BY profit DESC",
             period, caliberType
@@ -279,7 +279,7 @@ public class ReportController {
         // 4. 渠道分析
         String channelSql = String.format(
             "SELECT ch.name, sum(bl.revenue) as revenue, sum(bl.net_profit) as profit " +
-            "FROM biz_ledger bl LEFT JOIN dimension_master ch ON bl.channel_id = ch.id " +
+            "FROM dw_indicator_fact bl LEFT JOIN dim_organization ch ON bl.channel_id = ch.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY ch.name ORDER BY profit DESC",
             period, caliberType
@@ -290,9 +290,9 @@ public class ReportController {
         // 5. 客户经理绩效
         String managerSql = String.format(
             "SELECT mgr.name, org.name as org_name, sum(bl.net_profit) as profit " +
-            "FROM biz_ledger bl " +
-            "LEFT JOIN dimension_master mgr ON bl.manager_id = mgr.id " +
-            "LEFT JOIN dimension_master org ON bl.org_id = org.id " +
+            "FROM dw_indicator_fact bl " +
+            "LEFT JOIN dim_organization mgr ON bl.manager_id = mgr.id " +
+            "LEFT JOIN dim_organization org ON bl.org_id = org.id " +
             "WHERE bl.account_period = '%s' AND bl.caliber_type = '%s' " +
             "GROUP BY mgr.name, org.name ORDER BY profit DESC LIMIT 10",
             period, caliberType

@@ -64,48 +64,48 @@ public class AiExploreController {
         if (q.contains("排名") || q.contains("最高") || q.contains("最低")) {
             if (q.contains("分行") || q.contains("机构")) {
                 return "SELECT org_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                    "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC LIMIT 10";
+                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC LIMIT 10";
             }
             if (q.contains("产品")) {
                 return "SELECT product_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                    "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY product_name ORDER BY net_profit DESC LIMIT 10";
+                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY product_name ORDER BY net_profit DESC LIMIT 10";
             }
             if (q.contains("条线")) {
                 return "SELECT biz_line_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                    "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY biz_line_name ORDER BY net_profit DESC";
+                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY biz_line_name ORDER BY net_profit DESC";
             }
             if (q.contains("客户经理")) {
                 return "SELECT manager_name as name, sum(net_profit) as net_profit, count(distinct customer_name) as customer_cnt " +
-                    "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY manager_name ORDER BY net_profit DESC LIMIT 10";
+                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY manager_name ORDER BY net_profit DESC LIMIT 10";
             }
             return "SELECT org_name as name, sum(net_profit) as net_profit " +
-                "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC LIMIT 10";
+                "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC LIMIT 10";
         }
 
         if (q.contains("趋势") || q.contains("变化")) {
             return "SELECT account_period as period, sum(revenue) as revenue, sum(net_profit) as net_profit " +
-                "FROM biz_ledger GROUP BY account_period ORDER BY account_period";
+                "FROM dw_indicator_fact GROUP BY account_period ORDER BY account_period";
         }
 
         if (q.contains("成本")) {
             if (q.contains("结构") || q.contains("占比")) {
-                return "SELECT 'FTP成本' as name, sum(ftp_cost) as value FROM biz_ledger WHERE account_period = '2026-05' " +
-                    "UNION ALL SELECT '风险成本', sum(risk_cost) FROM biz_ledger WHERE account_period = '2026-05' " +
-                    "UNION ALL SELECT '运营成本', sum(op_cost) FROM biz_ledger WHERE account_period = '2026-05'";
+                return "SELECT 'FTP成本' as name, sum(ftp_cost) as value FROM dw_indicator_fact WHERE account_period = '2026-05' " +
+                    "UNION ALL SELECT '风险成本', sum(risk_cost) FROM dw_indicator_fact WHERE account_period = '2026-05' " +
+                    "UNION ALL SELECT '运营成本', sum(op_cost) FROM dw_indicator_fact WHERE account_period = '2026-05'";
             }
             return "SELECT org_name as name, sum(ftp_cost) as ftp_cost, sum(risk_cost) as risk_cost, sum(op_cost) as op_cost " +
-                "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY org_name ORDER BY sum(ftp_cost+risk_cost+op_cost) DESC";
+                "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY sum(ftp_cost+risk_cost+op_cost) DESC";
         }
 
         if (q.contains("客户")) {
             return "SELECT customer_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY customer_name ORDER BY net_profit DESC LIMIT 10";
+                "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY customer_name ORDER BY net_profit DESC LIMIT 10";
         }
 
         // 默认：返回各机构汇总
         return "SELECT org_name as name, sum(revenue) as revenue, sum(net_profit) as net_profit, " +
             "sum(ftp_cost) as ftp_cost, sum(risk_cost) as risk_cost, sum(op_cost) as op_cost " +
-            "FROM biz_ledger WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC";
+            "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC";
     }
 
     /**

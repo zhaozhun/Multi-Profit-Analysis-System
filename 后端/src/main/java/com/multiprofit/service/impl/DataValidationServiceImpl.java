@@ -2,7 +2,6 @@ package com.multiprofit.service.impl;
 
 import com.multiprofit.ai.ModelApiClient;
 import com.multiprofit.model.AlertRecord;
-import com.multiprofit.model.BizLedger;
 import com.multiprofit.service.DataValidationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +30,7 @@ public class DataValidationServiceImpl implements DataValidationService {
     private int consecutiveDeclineMonths;
 
     @Override
-    public List<ValidationResult> validate(BizLedger record) {
+    public List<ValidationResult> validate(Map<String, Object> record) {
         List<ValidationResult> results = new ArrayList<>();
 
         // 1. 利润公式校验
@@ -41,15 +40,17 @@ public class DataValidationServiceImpl implements DataValidationService {
         }
 
         // 2. 必填字段校验（星型模型使用ID外键）
-        if (record.getOrgId() == null) {
+        if (record.get("org_id") == null) {
             results.add(new ValidationResult(ValidationResult.Level.ERROR, "MISSING_ORG", "机构ID不能为空"));
         }
-        if (record.getProductId() == null) {
+        if (record.get("product_id") == null) {
             results.add(new ValidationResult(ValidationResult.Level.ERROR, "MISSING_PRODUCT", "产品ID不能为空"));
         }
 
         // 3. 逻辑校验
-        if (record.getRevenue().compareTo(BigDecimal.ZERO) < 0) {
+        Object revenueObj = record.get("revenue");
+        BigDecimal revenue = revenueObj != null ? new BigDecimal(revenueObj.toString()) : BigDecimal.ZERO;
+        if (revenue.compareTo(BigDecimal.ZERO) < 0) {
             results.add(new ValidationResult(ValidationResult.Level.WARNING, "NEGATIVE_REVENUE", "收入为负值，请确认"));
         }
 
@@ -57,48 +58,48 @@ public class DataValidationServiceImpl implements DataValidationService {
     }
 
     @Override
-    public Map<String, List<ValidationResult>> batchValidate(List<BizLedger> records) {
+    public Map<String, List<ValidationResult>> batchValidate(List<Map<String, Object>> records) {
         Map<String, List<ValidationResult>> resultMap = new LinkedHashMap<>();
-        for (BizLedger record : records) {
+        for (Map<String, Object> record : records) {
             List<ValidationResult> results = validate(record);
             if (!results.isEmpty()) {
-                resultMap.put(record.getBizId(), results);
+                resultMap.put(String.valueOf(record.get("biz_id")), results);
             }
         }
         return resultMap;
     }
 
     @Override
-    public ValidationResult validateProfitFormula(BizLedger record) {
+    public ValidationResult validateProfitFormula(Map<String, Object> record) {
         BigDecimal expected;
         String formulaDesc;
 
-        if ("DEPOSIT".equals(record.getProductType())) {
+        if ("DEPOSIT".equals((String)record.get("product_type"))) {
             // 存款：净利润 = FTP收入 - 对客利息支出 - 运营成本
-            BigDecimal ftpIncome = record.getInterestIncome() != null ? record.getInterestIncome() : BigDecimal.ZERO;
-            BigDecimal custInterest = record.getInterestExpense() != null ? record.getInterestExpense() : BigDecimal.ZERO;
-            BigDecimal op = record.getOpCost() != null ? record.getOpCost() : BigDecimal.ZERO;
+            BigDecimal ftpIncome = toBD(record.get("interest_income"));
+            BigDecimal custInterest = toBD(record.get("interest_expense"));
+            BigDecimal op = toBD(record.get("op_cost"));
             expected = ftpIncome.subtract(custInterest).subtract(op);
             formulaDesc = "存款公式：FTP收入 - 对客利息支出 - 运营成本";
-        } else if ("LOAN".equals(record.getProductType())) {
+        } else if ("LOAN".equals((String)record.get("product_type"))) {
             // 贷款：净利润 = 对客利息收入 - FTP成本 - 风险成本 - 运营成本
-            BigDecimal income = record.getInterestIncome() != null ? record.getInterestIncome() : BigDecimal.ZERO;
-            BigDecimal ftp = record.getFtpCost() != null ? record.getFtpCost() : BigDecimal.ZERO;
-            BigDecimal risk = record.getRiskCost() != null ? record.getRiskCost() : BigDecimal.ZERO;
-            BigDecimal op = record.getOpCost() != null ? record.getOpCost() : BigDecimal.ZERO;
+            BigDecimal income = toBD(record.get("interest_income"));
+            BigDecimal ftp = toBD(record.get("ftp_cost"));
+            BigDecimal risk = toBD(record.get("risk_cost"));
+            BigDecimal op = toBD(record.get("op_cost"));
             expected = income.subtract(ftp).subtract(risk).subtract(op);
             formulaDesc = "贷款公式：对客利息收入 - FTP成本 - 风险成本 - 运营成本";
         } else {
             // 其他：净利润 = 收入 - FTP成本 - 风险成本 - 运营成本
-            BigDecimal rev = record.getRevenue() != null ? record.getRevenue() : BigDecimal.ZERO;
-            BigDecimal ftp = record.getFtpCost() != null ? record.getFtpCost() : BigDecimal.ZERO;
-            BigDecimal risk = record.getRiskCost() != null ? record.getRiskCost() : BigDecimal.ZERO;
-            BigDecimal op = record.getOpCost() != null ? record.getOpCost() : BigDecimal.ZERO;
+            BigDecimal rev = toBD(record.get("revenue"));
+            BigDecimal ftp = toBD(record.get("ftp_cost"));
+            BigDecimal risk = toBD(record.get("risk_cost"));
+            BigDecimal op = toBD(record.get("op_cost"));
             expected = rev.subtract(ftp).subtract(risk).subtract(op);
             formulaDesc = "通用公式：收入 - FTP成本 - 风险成本 - 运营成本";
         }
 
-        BigDecimal actual = record.getNetProfit();
+        BigDecimal actual = toBD(record.get("net_profit"));
         BigDecimal diff = expected.subtract(actual).abs();
 
         // 允许0.01的精度误差
@@ -125,7 +126,7 @@ public class DataValidationServiceImpl implements DataValidationService {
         String currentSql = String.format(
             "SELECT %s as name, sum(revenue) as revenue, sum(net_profit) as net_profit, " +
             "sum(ftp_cost) as ftp_cost, sum(risk_cost) as risk_cost, sum(op_cost) as op_cost " +
-            "FROM biz_ledger WHERE account_period = '%s' GROUP BY %s",
+            "FROM dw_indicator_fact WHERE period = '%s' GROUP BY %s",
             nameCol, period, nameCol
         );
         List<Map<String, Object>> currentData = jdbcTemplate.queryForList(currentSql);
@@ -134,7 +135,7 @@ public class DataValidationServiceImpl implements DataValidationService {
         String prevMonth = getPreviousMonth(period);
         String prevSql = String.format(
             "SELECT %s as name, sum(revenue) as revenue, sum(net_profit) as net_profit " +
-            "FROM biz_ledger WHERE account_period = '%s' GROUP BY %s",
+            "FROM dw_indicator_fact WHERE period = '%s' GROUP BY %s",
             nameCol, prevMonth, nameCol
         );
         List<Map<String, Object>> prevData = jdbcTemplate.queryForList(prevSql);

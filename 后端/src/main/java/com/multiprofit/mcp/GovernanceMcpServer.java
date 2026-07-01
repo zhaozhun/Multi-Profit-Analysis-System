@@ -50,7 +50,7 @@ public class GovernanceMcpServer {
 
         for (String metric : metrics) {
             // 查询当期数据
-            String currentSql = "SELECT SUM(" + metric.toLowerCase() + ") as value FROM biz_ledger WHERE period = ?";
+            String currentSql = "SELECT SUM(" + metric.toLowerCase() + ") as value FROM dw_indicator_fact WHERE period = ?";
             Double currentValue = jdbcTemplate.queryForObject(currentSql, Double.class, period);
 
             // 查询上期数据
@@ -126,25 +126,25 @@ public class GovernanceMcpServer {
         List<Map<String, Object>> issues = new ArrayList<>();
 
         // 检查空值问题
-        String nullSql = "SELECT COUNT(*) FROM biz_ledger WHERE period = ? AND (revenue IS NULL OR cost IS NULL OR profit IS NULL)";
+        String nullSql = "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ? AND (revenue IS NULL OR cost IS NULL OR profit IS NULL)";
         Integer nullCount = jdbcTemplate.queryForObject(nullSql, Integer.class, period);
         if (nullCount != null && nullCount > 0) {
             Map<String, Object> issue = new HashMap<>();
             issue.put("level", "warning");
             issue.put("description", "发现" + nullCount + "条空值记录");
-            issue.put("table", "biz_ledger");
+            issue.put("table", "dw_indicator_fact");
             issue.put("period", period);
             issues.add(issue);
         }
 
         // 检查平衡问题
-        String balanceSql = "SELECT COUNT(*) FROM biz_ledger WHERE period = ? AND ABS(revenue - cost - profit) > 0.01";
+        String balanceSql = "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ? AND ABS(revenue - cost - profit) > 0.01";
         Integer balanceCount = jdbcTemplate.queryForObject(balanceSql, Integer.class, period);
         if (balanceCount != null && balanceCount > 0) {
             Map<String, Object> issue = new HashMap<>();
             issue.put("level", "critical");
             issue.put("description", "发现" + balanceCount + "条不平衡记录");
-            issue.put("table", "biz_ledger");
+            issue.put("table", "dw_indicator_fact");
             issue.put("period", period);
             issues.add(issue);
         }
@@ -164,16 +164,16 @@ public class GovernanceMcpServer {
         Map<String, Object> report = new HashMap<>();
 
         // 完整性检查
-        String completenessSql = "SELECT COUNT(*) FROM biz_ledger WHERE period = ? AND (revenue IS NOT NULL AND cost IS NOT NULL AND profit IS NOT NULL)";
+        String completenessSql = "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ? AND (revenue IS NOT NULL AND cost IS NOT NULL AND profit IS NOT NULL)";
         Integer completenessCount = jdbcTemplate.queryForObject(completenessSql, Integer.class, period);
 
-        String totalSql = "SELECT COUNT(*) FROM biz_ledger WHERE period = ?";
+        String totalSql = "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ?";
         Integer totalCount = jdbcTemplate.queryForObject(totalSql, Integer.class, period);
 
         int completeness = totalCount != null && totalCount > 0 ? (int) ((double) completenessCount / totalCount * 100) : 0;
 
         // 一致性检查
-        String consistencySql = "SELECT COUNT(*) FROM biz_ledger WHERE period = ? AND ABS(revenue - cost - profit) < 0.01";
+        String consistencySql = "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ? AND ABS(revenue - cost - profit) < 0.01";
         Integer consistencyCount = jdbcTemplate.queryForObject(consistencySql, Integer.class, period);
 
         int consistency = totalCount != null && totalCount > 0 ? (int) ((double) consistencyCount / totalCount * 100) : 0;

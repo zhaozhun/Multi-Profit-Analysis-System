@@ -1,6 +1,5 @@
 package com.multiprofit.service;
 
-import com.multiprofit.model.BizLedger;
 import java.util.List;
 import java.util.Map;
 
@@ -13,17 +12,17 @@ public interface DataValidationService {
      * 校验单条业务数据
      * @return 校验结果列表，空列表表示通过
      */
-    List<ValidationResult> validate(BizLedger record);
+    List<ValidationResult> validate(Map<String, Object> record);
 
     /**
      * 批量校验
      */
-    Map<String, List<ValidationResult>> batchValidate(List<BizLedger> records);
+    Map<String, List<ValidationResult>> batchValidate(List<Map<String, Object>> records);
 
     /**
      * 利润公式平衡校验
      */
-    ValidationResult validateProfitFormula(BizLedger record);
+    ValidationResult validateProfitFormula(Map<String, Object> record);
 
     /**
      * 同比环比异常检测

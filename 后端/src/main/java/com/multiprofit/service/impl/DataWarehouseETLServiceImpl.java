@@ -11,8 +11,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 数据仓库ETL服务实现
- * 调用数据库存储过程sp_etl_recalculate完成数据清洗和指标计算
+ * 数据仓库ETL服务实现(重写版)
+ * ODS日级数据 → DWD月度聚合 → DWS全维度层级上卷(MONTH/YEAR)
  */
 @Service
 public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
@@ -28,27 +28,33 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
         long startTime = System.currentTimeMillis();
 
         try {
-            // 0. 确保表结构正确
             ensureDwdTableStructure();
 
-            // 1. 执行费用分摊（当前用模拟数据）
+            // 1. 执行费用分摊(使用真实ODS日级数据)
             log.info("开始执行费用分摊: {}", period);
             generateExpenseAllocationData(period);
 
-            // 2. 执行ETL（直接执行SQL，不依赖存储过程）
+            // 2. ETL: ODS日级 → DWD月度聚合 → DWS全维度
             log.info("开始执行ETL: {}", period);
             executeETLSQL(period);
 
-            // 3. 统计结果
+            // 3. 年度累计
+            String year = period.substring(0, 4);
+            calculateYearlyAggregation(year);
+
+            // 4. 统计结果
             Integer dwdLoanCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM dwd_loan_detail WHERE account_period = ?",
                 Integer.class, period);
             Integer dwdDepositCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM dwd_deposit_detail WHERE account_period = ?",
                 Integer.class, period);
-            Integer dwFactCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ?",
+            Integer dwFactMonthCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ? AND period_type = 'MONTH'",
                 Integer.class, period);
+            Integer dwFactYearCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ? AND period_type = 'YEAR'",
+                Integer.class, year);
 
             long timeCost = System.currentTimeMillis() - startTime;
 
@@ -56,11 +62,13 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
             result.put("period", period);
             result.put("dwdLoanCount", dwdLoanCount);
             result.put("dwdDepositCount", dwdDepositCount);
-            result.put("dwFactCount", dwFactCount);
+            result.put("dwFactMonthCount", dwFactMonthCount);
+            result.put("dwFactYearCount", dwFactYearCount);
             result.put("duration", timeCost);
             result.put("message", "ETL执行成功");
 
-            log.info("ETL执行完成: {}, 耗时: {}ms", period, timeCost);
+            log.info("ETL执行完成: {}, 耗时: {}ms, DWD贷款:{}存款:{}, DWS月:{}年:{}",
+                period, timeCost, dwdLoanCount, dwdDepositCount, dwFactMonthCount, dwFactYearCount);
 
         } catch (Exception e) {
             log.error("ETL执行失败: {}", period, e);
@@ -72,80 +80,52 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
     }
 
     /**
-     * 生成模拟费用分摊数据
-     * 在ETL执行前，为每笔业务生成运营成本分摊结果
+     * 生成费用分摊数据(基于ODS日级真实数据,月末那一天)
      */
     private void generateExpenseAllocationData(String period) {
-        // 清除旧数据
         jdbcTemplate.update("DELETE FROM expense_allocation_result WHERE period = ?", period);
 
-        // 生成贷款业务的运营成本
+        // 贷款运营成本 = 月末余额 × 0.5% / 12 (模拟,实际由分摊引擎计算)
         String loanSql = "INSERT INTO expense_allocation_result " +
             "(period, biz_id, biz_type, expense_type, expense_name, allocated_amount, factor_value, factor_ratio, rule_code, batch_no) " +
             "SELECT ?, l.biz_id, 'LOAN', 'OP_COST', '运营成本', " +
-            "l.loan_balance * (0.01 + RAND() * 0.02), l.loan_balance, 1, 'SIMULATED', ? " +
-            "FROM loan_indicator_detail l WHERE l.account_period = ?";
+            "l.loan_balance * 0.005 / 12, l.loan_balance, 1, 'LOAN_BALANCE_RATIO', ? " +
+            "FROM loan_indicator_detail l " +
+            "WHERE l.account_period = ? AND l.stat_date = LAST_DAY(l.stat_date)";
         jdbcTemplate.update(loanSql, period, "BATCH_" + period, period);
 
-        // 生成存款业务的运营成本
+        // 存款运营成本
         String depositSql = "INSERT INTO expense_allocation_result " +
             "(period, biz_id, biz_type, expense_type, expense_name, allocated_amount, factor_value, factor_ratio, rule_code, batch_no) " +
             "SELECT ?, d.biz_id, 'DEPOSIT', 'OP_COST', '运营成本', " +
-            "d.deposit_balance * (0.01 + RAND() * 0.02), d.deposit_balance, 1, 'SIMULATED', ? " +
-            "FROM deposit_indicator_detail d WHERE d.account_period = ?";
+            "d.deposit_balance * 0.003 / 12, d.deposit_balance, 1, 'DEPOSIT_BALANCE_RATIO', ? " +
+            "FROM deposit_indicator_detail d " +
+            "WHERE d.account_period = ? AND d.stat_date = LAST_DAY(d.stat_date)";
         jdbcTemplate.update(depositSql, period, "BATCH_" + period, period);
 
-        log.info("模拟费用分摊数据生成完成: {}", period);
+        log.info("费用分摊数据生成完成: {}", period);
     }
 
     /**
-     * 确保DWD层表有正确的结构
+     * 确保DWD层表结构
      */
     private void ensureDwdTableStructure() {
-        // 检查并添加loan_profit列
         addColumnIfNotExists("dwd_loan_detail", "loan_profit", "DECIMAL(18,4)", "贷款利润");
         addColumnIfNotExists("dwd_loan_detail", "net_interest_margin", "DECIMAL(18,4)", "净利差");
+        addColumnIfNotExists("dwd_loan_detail", "dept_id", "BIGINT", "部门ID");
+        addColumnIfNotExists("dwd_loan_detail", "dept_name", "VARCHAR(200)", "部门名称");
         addColumnIfNotExists("dwd_deposit_detail", "deposit_profit", "DECIMAL(18,4)", "存款利润");
-
-        // 修复表的字符集和排序规则
-        fixTableCollation("dwd_loan_detail");
-        fixTableCollation("dwd_deposit_detail");
-        fixTableCollation("loan_indicator_detail");
-        fixTableCollation("deposit_indicator_detail");
-        fixTableCollation("expense_allocation_result");
-        fixTableCollation("dw_dim_organization");
-        fixTableCollation("dw_dim_biz_line");
-        fixTableCollation("dw_dim_product");
-        fixTableCollation("dw_dim_channel");
-        fixTableCollation("dw_dim_manager");
-
+        addColumnIfNotExists("dwd_deposit_detail", "dept_id", "BIGINT", "部门ID");
+        addColumnIfNotExists("dwd_deposit_detail", "dept_name", "VARCHAR(200)", "部门名称");
         log.info("DWD层表结构检查完成");
     }
 
-    /**
-     * 修复表的字符集和排序规则
-     */
-    private void fixTableCollation(String tableName) {
-        try {
-            String sql = "ALTER TABLE " + tableName + " CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci";
-            jdbcTemplate.execute(sql);
-            log.info("修复表排序规则: {}", tableName);
-        } catch (Exception e) {
-            log.warn("修复表排序规则失败: {} - {}", tableName, e.getMessage());
-        }
-    }
-
-    /**
-     * 如果列不存在则添加
-     */
     private void addColumnIfNotExists(String tableName, String columnName, String columnType, String comment) {
         try {
-            // 检查列是否存在
             String checkSql = "SELECT COUNT(*) FROM information_schema.columns " +
-                "WHERE table_schema = DATABASE() AND table_name = '" + tableName + "' AND column_name = '" + columnName + "'";
-            Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class);
+                "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?";
+            Integer count = jdbcTemplate.queryForObject(checkSql, Integer.class, tableName, columnName);
             if (count != null && count == 0) {
-                // 列不存在，添加它
                 String alterSql = "ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType + " COMMENT '" + comment + "'";
                 jdbcTemplate.execute(alterSql);
                 log.info("添加列: {}.{}", tableName, columnName);
@@ -156,205 +136,243 @@ public class DataWarehouseETLServiceImpl implements DataWarehouseETLService {
     }
 
     /**
-     * 执行ETL SQL（直接执行，不依赖存储过程）
+     * 执行ETL核心SQL: ODS日级 → DWD月度 → DWS全维度层级上卷
      */
     private void executeETLSQL(String period) {
-        // 1. 清除DWD层数据
-        jdbcTemplate.update("DELETE FROM dwd_loan_detail WHERE account_period = '" + period + "'");
-        jdbcTemplate.update("DELETE FROM dwd_deposit_detail WHERE account_period = '" + period + "'");
+        // === 1. 清除DWD该期间数据 ===
+        jdbcTemplate.update("DELETE FROM dwd_loan_detail WHERE account_period = ?", period);
+        jdbcTemplate.update("DELETE FROM dwd_deposit_detail WHERE account_period = ?", period);
 
-        // 2. 从ODS层清洗数据到DWD层（贷款）
-        String loanDwdSql = "INSERT INTO dwd_loan_detail (" +
+        // === 2. ODS日级 → DWD月度聚合(贷款) ===
+        // 时点余额=月末那天,月度利息/FTP/风险=月内每日SUM,运营成本=分摊结果
+        String loanDwdSql =
+            "INSERT INTO dwd_loan_detail (" +
             "biz_id, account_period, caliber_type, " +
             "org_id, org_name, biz_line_id, biz_line_name, " +
             "product_id, product_name, channel_id, channel_name, " +
-            "manager_id, manager_name, customer_id, customer_name, " +
+            "manager_id, manager_name, dept_id, dept_name, " +
+            "customer_id, customer_name, " +
             "loan_balance, loan_monthly_interest, ftp_cost, risk_cost, op_cost, " +
             "loan_profit, net_interest_margin" +
             ") SELECT " +
             "l.biz_id, l.account_period, l.caliber_type, " +
-            "o.id, l.org_name, bl.id, l.biz_line_name, " +
-            "p.id, l.product_name, c.id, l.channel_name, " +
-            "m.id, l.manager_name, l.customer_id, l.customer_name, " +
-            "l.loan_balance, l.loan_monthly_interest, l.ftp_cost, l.risk_cost, " +
-            "COALESCE(ear.op_cost, 0), " +
-            "(l.loan_monthly_interest - l.ftp_cost - l.risk_cost - COALESCE(ear.op_cost, 0)), " +
-            "(l.loan_monthly_interest - l.ftp_cost) " +
+            "l.org_id, l.org_name, l.biz_line_id, l.biz_line_name, " +
+            "l.product_id, l.product_name, l.channel_id, l.channel_name, " +
+            "l.manager_id, l.manager_name, l.dept_id, l.dept_name, " +
+            "l.customer_id, l.customer_name, " +
+            "MAX(CASE WHEN l.stat_date = LAST_DAY(l.stat_date) THEN l.loan_balance END), " +
+            "SUM(l.loan_daily_interest), " +
+            "SUM(l.ftp_cost), " +
+            "SUM(l.risk_cost), " +
+            "COALESCE(ea.op_cost, 0), " +
+            "SUM(l.loan_daily_interest) - SUM(l.ftp_cost) - SUM(l.risk_cost) - COALESCE(ea.op_cost, 0), " +
+            "SUM(l.loan_daily_interest) - SUM(l.ftp_cost) " +
             "FROM loan_indicator_detail l " +
-            "LEFT JOIN dw_dim_organization o ON l.org_name = o.org_name " +
-            "LEFT JOIN dw_dim_biz_line bl ON l.biz_line_name = bl.line_name " +
-            "LEFT JOIN dw_dim_product p ON l.product_name = p.product_name " +
-            "LEFT JOIN dw_dim_channel c ON l.channel_name = c.channel_name " +
-            "LEFT JOIN dw_dim_manager m ON l.manager_name = m.manager_name " +
             "LEFT JOIN (" +
             "  SELECT biz_id, SUM(allocated_amount) as op_cost " +
-            "  FROM expense_allocation_result WHERE period = '" + period + "' GROUP BY biz_id" +
-            ") ear ON l.biz_id = ear.biz_id " +
-            "WHERE l.account_period = '" + period + "'";
-        jdbcTemplate.execute(loanDwdSql);
+            "  FROM expense_allocation_result WHERE period = ? GROUP BY biz_id" +
+            ") ea ON l.biz_id = ea.biz_id " +
+            "WHERE l.account_period = ? " +
+            "GROUP BY l.biz_id, l.account_period, l.caliber_type, l.org_id, l.org_name, " +
+            "l.biz_line_id, l.biz_line_name, l.product_id, l.product_name, " +
+            "l.channel_id, l.channel_name, l.manager_id, l.manager_name, " +
+            "l.dept_id, l.dept_name, l.customer_id, l.customer_name";
+        jdbcTemplate.update(loanDwdSql, period, period);
 
-        // 3. 从ODS层清洗数据到DWD层（存款）
-        String depositDwdSql = "INSERT INTO dwd_deposit_detail (" +
+        // === 3. ODS日级 → DWD月度聚合(存款) ===
+        String depositDwdSql =
+            "INSERT INTO dwd_deposit_detail (" +
             "biz_id, account_period, caliber_type, " +
             "org_id, org_name, biz_line_id, biz_line_name, " +
             "product_id, product_name, channel_id, channel_name, " +
-            "manager_id, manager_name, customer_id, customer_name, " +
-            "deposit_balance, deposit_monthly_interest, ftp_income, op_cost, " +
-            "deposit_profit" +
+            "manager_id, manager_name, dept_id, dept_name, " +
+            "customer_id, customer_name, " +
+            "deposit_balance, deposit_monthly_interest, ftp_income, op_cost, deposit_profit" +
             ") SELECT " +
             "d.biz_id, d.account_period, d.caliber_type, " +
-            "o.id, d.org_name, bl.id, d.biz_line_name, " +
-            "p.id, d.product_name, c.id, d.channel_name, " +
-            "m.id, d.manager_name, d.customer_id, d.customer_name, " +
-            "d.deposit_balance, d.deposit_monthly_interest, d.ftp_income, " +
-            "COALESCE(ear.op_cost, 0), " +
-            "(d.ftp_income - d.deposit_monthly_interest - COALESCE(ear.op_cost, 0)) " +
+            "d.org_id, d.org_name, d.biz_line_id, d.biz_line_name, " +
+            "d.product_id, d.product_name, d.channel_id, d.channel_name, " +
+            "d.manager_id, d.manager_name, d.dept_id, d.dept_name, " +
+            "d.customer_id, d.customer_name, " +
+            "MAX(CASE WHEN d.stat_date = LAST_DAY(d.stat_date) THEN d.deposit_balance END), " +
+            "SUM(d.deposit_daily_interest), " +
+            "SUM(d.ftp_income), " +
+            "COALESCE(ea.op_cost, 0), " +
+            "SUM(d.ftp_income) - SUM(d.deposit_daily_interest) - COALESCE(ea.op_cost, 0) " +
             "FROM deposit_indicator_detail d " +
-            "LEFT JOIN dw_dim_organization o ON d.org_name = o.org_name " +
-            "LEFT JOIN dw_dim_biz_line bl ON d.biz_line_name = bl.line_name " +
-            "LEFT JOIN dw_dim_product p ON d.product_name = p.product_name " +
-            "LEFT JOIN dw_dim_channel c ON d.channel_name = c.channel_name " +
-            "LEFT JOIN dw_dim_manager m ON d.manager_name = m.manager_name " +
             "LEFT JOIN (" +
             "  SELECT biz_id, SUM(allocated_amount) as op_cost " +
-            "  FROM expense_allocation_result WHERE period = '" + period + "' GROUP BY biz_id" +
-            ") ear ON d.biz_id = ear.biz_id " +
-            "WHERE d.account_period = '" + period + "'";
-        jdbcTemplate.execute(depositDwdSql);
+            "  FROM expense_allocation_result WHERE period = ? GROUP BY biz_id" +
+            ") ea ON d.biz_id = ea.biz_id " +
+            "WHERE d.account_period = ? " +
+            "GROUP BY d.biz_id, d.account_period, d.caliber_type, d.org_id, d.org_name, " +
+            "d.biz_line_id, d.biz_line_name, d.product_id, d.product_name, " +
+            "d.channel_id, d.channel_name, d.manager_id, d.manager_name, " +
+            "d.dept_id, d.dept_name, d.customer_id, d.customer_name";
+        jdbcTemplate.update(depositDwdSql, period, period);
 
-        // 4. 清除DWS层数据
-        jdbcTemplate.update("DELETE FROM dw_indicator_fact WHERE period = '" + period + "'");
+        // === 4. 清除DWS MONTH数据 ===
+        jdbcTemplate.update("DELETE FROM dw_indicator_fact WHERE period = ? AND period_type = 'MONTH'", period);
 
-        // 5. 按各维度汇总指标到DWS层
-        // 5.1 按机构维度汇总贷款指标
-        String orgLoanSql = "INSERT IGNORE INTO dw_indicator_fact " +
+        // === 5. DWS MONTH: 全维度层级上卷 ===
+        String[] dimTypes = {"ORG", "BIZ_LINE", "DEPT", "PRODUCT", "CHANNEL", "MANAGER", "CUSTOMER"};
+        String[] dimTables = {"dim_organization", "dim_biz_line", "dim_dept",
+                              "dim_product", "dim_channel", "dim_manager", "dim_customer_type"};
+
+        for (int i = 0; i < dimTypes.length; i++) {
+            String dimType = dimTypes[i];
+            String dimTable = dimTables[i];
+            String loanDimCol = getDimIdColumn(dimType);
+
+            // 层级上卷: level 1/2/3 全部写入
+            for (int level = 3; level >= 1; level--) {
+                // 贷款指标: LOAN_MONTHLY_INTEREST, LOAN_FTP_COST, LOAN_RISK_COST, LOAN_OP_COST, LOAN_MONTHLY_PROFIT
+                String loanSql =
+                    "INSERT IGNORE INTO dw_indicator_fact " +
+                    "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+                    "SELECT 'LOAN_MONTHLY_INTEREST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.loan_monthly_interest)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_loan_detail dl " +
+                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dl.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name " +
+                    "UNION ALL " +
+                    "SELECT 'LOAN_FTP_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.ftp_cost)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_loan_detail dl " +
+                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dl.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name " +
+                    "UNION ALL " +
+                    "SELECT 'LOAN_RISK_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.risk_cost)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_loan_detail dl " +
+                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dl.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name " +
+                    "UNION ALL " +
+                    "SELECT 'LOAN_OP_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dl.op_cost)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_loan_detail dl " +
+                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dl.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name " +
+                    "UNION ALL " +
+                    "SELECT 'LOAN_MONTHLY_PROFIT', ?, 'MONTH', ?, d.id, d.name, SUM(dl.loan_profit)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_loan_detail dl " +
+                    "JOIN " + dimTable + " leaf ON dl." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dl.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name";
+                jdbcTemplate.update(loanSql,
+                    period, dimType, period, level,
+                    period, dimType, period, level,
+                    period, dimType, period, level,
+                    period, dimType, period, level,
+                    period, dimType, period, level);
+
+                // 存款指标: FTP_MONTHLY_INCOME, INTEREST_MONTHLY_EXPENSE, DEPOSIT_OP_COST, DEPOSIT_MONTHLY_PROFIT
+                String depositSql =
+                    "INSERT IGNORE INTO dw_indicator_fact " +
+                    "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
+                    "SELECT 'FTP_MONTHLY_INCOME', ?, 'MONTH', ?, d.id, d.name, SUM(dd.ftp_income)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_deposit_detail dd " +
+                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dd.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name " +
+                    "UNION ALL " +
+                    "SELECT 'INTEREST_MONTHLY_EXPENSE', ?, 'MONTH', ?, d.id, d.name, SUM(dd.deposit_monthly_interest)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_deposit_detail dd " +
+                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dd.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name " +
+                    "UNION ALL " +
+                    "SELECT 'DEPOSIT_OP_COST', ?, 'MONTH', ?, d.id, d.name, SUM(dd.op_cost)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_deposit_detail dd " +
+                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dd.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name " +
+                    "UNION ALL " +
+                    "SELECT 'DEPOSIT_MONTHLY_PROFIT', ?, 'MONTH', ?, d.id, d.name, SUM(dd.deposit_profit)/10000, 'ASSESS', NOW() " +
+                    "FROM dwd_deposit_detail dd " +
+                    "JOIN " + dimTable + " leaf ON dd." + loanDimCol + " = leaf.id " +
+                    "JOIN " + dimTable + " d ON leaf.id = d.id " +
+                    "WHERE dd.account_period = ? AND d.level = ? " +
+                    "GROUP BY d.id, d.name";
+                jdbcTemplate.update(depositSql,
+                    period, dimType, period, level,
+                    period, dimType, period, level,
+                    period, dimType, period, level,
+                    period, dimType, period, level);
+            }
+        }
+
+        // === 6. DWS MONTH: TOTAL汇总 ===
+        insertTotalMonthIndicators(period);
+
+        log.info("ETL MONTH执行完成: {}", period);
+    }
+
+    /**
+     * 插入MONTH TOTAL汇总行
+     */
+    private void insertTotalMonthIndicators(String period) {
+        String totalSql =
+            "INSERT IGNORE INTO dw_indicator_fact " +
             "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'INTEREST_INCOME', '" + period + "', 'MONTH', 'ORG', org_id, org_name, SUM(loan_monthly_interest) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_loan_detail WHERE account_period = '" + period + "' GROUP BY org_id, org_name";
-        jdbcTemplate.execute(orgLoanSql);
+            "SELECT 'LOAN_MONTHLY_INTEREST', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(loan_monthly_interest),0)/10000, 'ASSESS', NOW() FROM dwd_loan_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'LOAN_FTP_COST', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(ftp_cost),0)/10000, 'ASSESS', NOW() FROM dwd_loan_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'LOAN_RISK_COST', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(risk_cost),0)/10000, 'ASSESS', NOW() FROM dwd_loan_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'LOAN_OP_COST', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(op_cost),0)/10000, 'ASSESS', NOW() FROM dwd_loan_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'LOAN_MONTHLY_PROFIT', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(loan_profit),0)/10000, 'ASSESS', NOW() FROM dwd_loan_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'FTP_MONTHLY_INCOME', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(ftp_income),0)/10000, 'ASSESS', NOW() FROM dwd_deposit_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'INTEREST_MONTHLY_EXPENSE', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(deposit_monthly_interest),0)/10000, 'ASSESS', NOW() FROM dwd_deposit_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'DEPOSIT_OP_COST', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(op_cost),0)/10000, 'ASSESS', NOW() FROM dwd_deposit_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'DEPOSIT_MONTHLY_PROFIT', ?, 'MONTH', 'TOTAL', 0, '全部', COALESCE(SUM(deposit_profit),0)/10000, 'ASSESS', NOW() FROM dwd_deposit_detail WHERE account_period = ? " +
+            "UNION ALL SELECT 'TOTAL_MONTHLY_PROFIT', ?, 'MONTH', 'TOTAL', 0, '全部', " +
+            "((SELECT COALESCE(SUM(loan_profit),0) FROM dwd_loan_detail WHERE account_period = ?) + " +
+            " (SELECT COALESCE(SUM(deposit_profit),0) FROM dwd_deposit_detail WHERE account_period = ?)) / 10000, 'ASSESS', NOW()";
+        // 9 segments × 2 params + 1 segment × 3 params = 21 params
+        jdbcTemplate.update(totalSql,
+            period, period, period, period, period, period, period, period, period, period,
+            period, period, period, period, period, period, period, period, period, period,
+            period);
+    }
 
-        // 5.2 按机构维度汇总存款指标
-        String orgDepositSql = "INSERT IGNORE INTO dw_indicator_fact " +
+    /**
+     * 年度累计: 汇总MONTH数据
+     */
+    private void calculateYearlyAggregation(String year) {
+        jdbcTemplate.update("DELETE FROM dw_indicator_fact WHERE period = ? AND period_type = 'YEAR'", year);
+
+        String yearlySql =
+            "INSERT IGNORE INTO dw_indicator_fact " +
             "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'FTP_INCOME', '" + period + "', 'MONTH', 'ORG', org_id, org_name, SUM(ftp_income) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_deposit_detail WHERE account_period = '" + period + "' GROUP BY org_id, org_name";
-        jdbcTemplate.execute(orgDepositSql);
+            "SELECT indicator_code, ?, 'YEAR', dim_type, dim_id, dim_name, SUM(calc_value), caliber_type, NOW() " +
+            "FROM dw_indicator_fact " +
+            "WHERE period LIKE CONCAT(?, '-%') AND period_type = 'MONTH' " +
+            "GROUP BY indicator_code, dim_type, dim_id, dim_name, caliber_type";
+        jdbcTemplate.update(yearlySql, year, year);
 
-        // 5.3 按各维度汇总运营成本
-        String opCostOrgSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'OP_COST', '" + period + "', 'MONTH', 'ORG', org_id, org_name, SUM(op_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM (SELECT org_id, org_name, op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
-            "UNION ALL SELECT org_id, org_name, op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t " +
-            "GROUP BY org_id, org_name";
-        jdbcTemplate.execute(opCostOrgSql);
+        log.info("年度累计计算完成: {}", year);
+    }
 
-        String opCostBizLineSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'OP_COST', '" + period + "', 'MONTH', 'BIZ_LINE', biz_line_id, biz_line_name, SUM(op_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM (SELECT biz_line_id, biz_line_name, op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
-            "UNION ALL SELECT biz_line_id, biz_line_name, op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t " +
-            "GROUP BY biz_line_id, biz_line_name";
-        jdbcTemplate.execute(opCostBizLineSql);
-
-        String opCostProductSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'OP_COST', '" + period + "', 'MONTH', 'PRODUCT', product_id, product_name, SUM(op_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM (SELECT product_id, product_name, op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
-            "UNION ALL SELECT product_id, product_name, op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t " +
-            "GROUP BY product_id, product_name";
-        jdbcTemplate.execute(opCostProductSql);
-
-        String opCostChannelSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'OP_COST', '" + period + "', 'MONTH', 'CHANNEL', channel_id, channel_name, SUM(op_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM (SELECT channel_id, channel_name, op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
-            "UNION ALL SELECT channel_id, channel_name, op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t " +
-            "GROUP BY channel_id, channel_name";
-        jdbcTemplate.execute(opCostChannelSql);
-
-        String opCostManagerSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'OP_COST', '" + period + "', 'MONTH', 'MANAGER', manager_id, manager_name, SUM(op_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM (SELECT manager_id, manager_name, op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
-            "UNION ALL SELECT manager_id, manager_name, op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t " +
-            "GROUP BY manager_id, manager_name";
-        jdbcTemplate.execute(opCostManagerSql);
-
-        String opCostCustomerSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'OP_COST', '" + period + "', 'MONTH', 'CUSTOMER', customer_id, customer_name, SUM(op_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM (SELECT customer_id, customer_name, op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
-            "UNION ALL SELECT customer_id, customer_name, op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t " +
-            "GROUP BY customer_id, customer_name";
-        jdbcTemplate.execute(opCostCustomerSql);
-
-        // 5.4 计算TOTAL汇总
-        // 运营成本TOTAL
-        String totalOpCostSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'OP_COST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(op_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM (SELECT op_cost FROM dwd_loan_detail WHERE account_period = '" + period + "' " +
-            "UNION ALL SELECT op_cost FROM dwd_deposit_detail WHERE account_period = '" + period + "') t";
-        jdbcTemplate.execute(totalOpCostSql);
-
-        // 利息收入TOTAL
-        String totalInterestSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'INTEREST_INCOME', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(loan_monthly_interest) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
-        jdbcTemplate.execute(totalInterestSql);
-
-        // FTP成本TOTAL
-        String totalFtpCostSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'FTP_COST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(ftp_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
-        jdbcTemplate.execute(totalFtpCostSql);
-
-        // 风险成本TOTAL
-        String totalRiskCostSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'RISK_COST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(risk_cost) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
-        jdbcTemplate.execute(totalRiskCostSql);
-
-        // 贷款利润TOTAL
-        String totalLoanProfitSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'LOAN_PROFIT', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(loan_profit) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_loan_detail WHERE account_period = '" + period + "'";
-        jdbcTemplate.execute(totalLoanProfitSql);
-
-        // FTP收入TOTAL
-        String totalFtpIncomeSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'FTP_INCOME', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(ftp_income) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_deposit_detail WHERE account_period = '" + period + "'";
-        jdbcTemplate.execute(totalFtpIncomeSql);
-
-        // 存款利息支出TOTAL
-        String totalDepositInterestSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'DEPOSIT_INTEREST', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(deposit_monthly_interest) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_deposit_detail WHERE account_period = '" + period + "'";
-        jdbcTemplate.execute(totalDepositInterestSql);
-
-        // 存款利润TOTAL
-        String totalDepositProfitSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'DEPOSIT_PROFIT', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', SUM(deposit_profit) / 10000, 'ASSESS', NOW() " +
-            "FROM dwd_deposit_detail WHERE account_period = '" + period + "'";
-        jdbcTemplate.execute(totalDepositProfitSql);
-
-        // 总利润TOTAL = 贷款利润 + 存款利润
-        String totalProfitSql = "INSERT IGNORE INTO dw_indicator_fact " +
-            "(indicator_code, period, period_type, dim_type, dim_id, dim_name, calc_value, caliber_type, calc_time) " +
-            "SELECT 'TOTAL_PROFIT', '" + period + "', 'MONTH', 'TOTAL', 0, '全部', " +
-            "((SELECT COALESCE(SUM(loan_profit), 0) FROM dwd_loan_detail WHERE account_period = '" + period + "') + " +
-            "(SELECT COALESCE(SUM(deposit_profit), 0) FROM dwd_deposit_detail WHERE account_period = '" + period + "')) / 10000, 'ASSESS', NOW()";
-        jdbcTemplate.execute(totalProfitSql);
-
-        log.info("ETL SQL执行完成: {}", period);
+    /**
+     * 维度类型 → DWD表ID列名映射
+     */
+    private String getDimIdColumn(String dimType) {
+        switch (dimType) {
+            case "ORG": return "org_id";
+            case "BIZ_LINE": return "biz_line_id";
+            case "DEPT": return "dept_id";
+            case "PRODUCT": return "product_id";
+            case "CHANNEL": return "channel_id";
+            case "MANAGER": return "manager_id";
+            case "CUSTOMER": return "customer_id";
+            default: throw new IllegalArgumentException("Unknown dimType: " + dimType);
+        }
     }
 }

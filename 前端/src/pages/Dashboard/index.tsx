@@ -18,7 +18,7 @@ const CHART_HEIGHT = 250;
 const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [caliberType] = useState('ASSESS');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().subtract(1, 'month').startOf('month'), dayjs().subtract(1, 'month').endOf('month')]);
   const [quickSelect, setQuickSelect] = useState('thisMonth');
   const [activeTab, setActiveTab] = useState('overview');
   const [kpiCards, setKpiCards] = useState<any[]>([]);
@@ -62,7 +62,7 @@ const Dashboard: React.FC = () => {
     switch (value) {
       case 'today': setDateRange([dayjs(), dayjs()]); break;
       case 'thisMonth': setDateRange([dayjs().startOf('month'), dayjs()]); break;
-      case 'thisYear': setDateRange([dayjs().startOf('year'), dayjs()]); break;
+      case 'thisYear': setDateRange([dayjs().startOf('year'), dayjs().endOf('year')]); break;
       case 'custom': break;
     }
   };
@@ -108,15 +108,17 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const getCard = (name: string) => kpiCards.find((c: any) => c.metricName === name);
-  const totalProfit = getCard('总利润');
-  const loanProfit = getCard('贷款利润');
-  const depositProfit = getCard('存款利润');
-  const loanRevenue = getCard('贷款收入');
-  const depositRevenue = getCard('存款收入');
-  const ftpCost = getCard('FTP成本');
-  const riskCost = getCard('风险成本');
-  const opCost = getCard('运营成本');
+  const getCardByCode = (code: string) => kpiCards.find((c: any) => c.metricCode === code);
+  const totalProfit = getCardByCode('TOTAL_MONTHLY_PROFIT');
+  const loanProfit = getCardByCode('LOAN_MONTHLY_PROFIT');
+  const depositProfit = getCardByCode('DEPOSIT_MONTHLY_PROFIT');
+  const loanRevenue = getCardByCode('LOAN_MONTHLY_INTEREST');
+  const depositRevenue = getCardByCode('FTP_MONTHLY_INCOME');
+  const ftpCost = getCardByCode('LOAN_FTP_COST');
+  const riskCost = getCardByCode('LOAN_RISK_COST');
+  const loanOpCost = getCardByCode('LOAN_OP_COST');
+  const depositOpCost = getCardByCode('DEPOSIT_OP_COST');
+  const opCost = { value: (loanOpCost?.value || 0) + (depositOpCost?.value || 0) };
 
   // 计算关键指标
   const totalRevenue = (loanRevenue?.value || 0) + (depositRevenue?.value || 0);

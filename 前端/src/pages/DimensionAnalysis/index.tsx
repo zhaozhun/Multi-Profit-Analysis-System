@@ -28,7 +28,7 @@ const DimensionAnalysis: React.FC = () => {
   const { dimType } = useParams<{ dimType: string }>();
   const [loading, setLoading] = useState(true);
   const [caliberType] = useState('ASSESS');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().subtract(1, 'month').startOf('month'), dayjs().subtract(1, 'month').endOf('month')]);
   const [quickSelect, setQuickSelect] = useState('thisMonth');
   const [treeData, setTreeData] = useState<any[]>([]);
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
@@ -121,7 +121,7 @@ const DimensionAnalysis: React.FC = () => {
     switch (value) {
       case 'today': setDateRange([dayjs(), dayjs()]); break;
       case 'thisMonth': setDateRange([dayjs().startOf('month'), dayjs()]); break;
-      case 'thisYear': setDateRange([dayjs().startOf('year'), dayjs()]); break;
+      case 'thisYear': setDateRange([dayjs().startOf('year'), dayjs().endOf('year')]); break;
       case 'custom': break;
     }
   };

@@ -174,7 +174,7 @@ public class IndicatorController {
             @RequestParam(required = false) String businessLine) {
         try {
             StringBuilder sql = new StringBuilder(
-                "SELECT * FROM indicator_definition WHERE status = 'ACTIVE'");
+                "SELECT * FROM indicator_library WHERE status = 1");
             List<Object> params = new ArrayList<>();
 
             if (indicatorType != null && !indicatorType.isEmpty()) {

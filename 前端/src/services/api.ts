@@ -75,16 +75,4 @@ export const aiHealthCheck = () =>
 export const detectAnomaly = (period: string, dimType: string = 'ORG') =>
   api.post('/validation/detect', null, { params: { period, dimType } });
 
-// ==================== 费用分摊（重新导出）====================
-export {
-  factorApi,
-  allocationApi,
-  algorithmApi,
-  costTypeApi,
-  commissionConfigApi,
-  employeeCostApi,
-  operationCostApi,
-  allocationAiApi,
-} from './allocationApi';
-
 export default api;

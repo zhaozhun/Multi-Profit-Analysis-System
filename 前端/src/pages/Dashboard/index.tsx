@@ -3,6 +3,7 @@ import { Row, Col, Card, Select, Spin, Tag, Table, Tabs, Space, Button, DatePick
 import {
   ReloadOutlined, DownloadOutlined, WarningOutlined, FileTextOutlined,
   CheckCircleOutlined, ExclamationCircleOutlined, CloseCircleOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
@@ -16,8 +17,8 @@ const CHART_HEIGHT = 250;
 
 const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [caliberType] = useState('BOOK');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs('2025-06-01'), dayjs('2025-06-30')]);
+  const [caliberType] = useState('ASSESS');
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().startOf('month'), dayjs()]);
   const [quickSelect, setQuickSelect] = useState('thisMonth');
   const [activeTab, setActiveTab] = useState('overview');
   const [kpiCards, setKpiCards] = useState<any[]>([]);
@@ -605,8 +606,5 @@ const Dashboard: React.FC = () => {
     </Spin>
   );
 };
-
-// 需要导入 DashboardOutlined
-import { DashboardOutlined } from '@ant-design/icons';
 
 export default Dashboard;

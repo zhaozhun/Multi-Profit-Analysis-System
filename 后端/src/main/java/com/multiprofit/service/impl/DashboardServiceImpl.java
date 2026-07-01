@@ -9,233 +9,288 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.*;
 
+/**
+ * 驾驶舱服务实现类
+ * 数据源：dw_indicator_fact（预计算数据，dim_type='TOTAL'）
+ */
 @Service
 public class DashboardServiceImpl implements DashboardService {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @Override
-    public DashboardDTO getDashboardData(String startDate, String endDate, String caliberType, Long orgScope) {
-        DashboardDTO dto = new DashboardDTO();
-        dto.setKpiCards(getKpiCards(startDate, endDate, caliberType));
-        dto.setWaterfall(getWaterfallData(startDate, endDate, caliberType));
-        dto.setTrend(getTrendData(endDate, caliberType));
-        dto.setDimOverviews(getAllDimOverviews(startDate, endDate, caliberType));
-        dto.setAlerts(new ArrayList<>());
-        return dto;
+    /**
+     * 获取数据库中最新的月份
+     */
+    private String getLatestPeriod() {
+        try {
+            String latest = jdbcTemplate.queryForObject(
+                "SELECT MAX(period) FROM dw_indicator_fact WHERE period_type = 'MONTH'", String.class);
+            return latest != null ? latest : "2026-06";
+        } catch (Exception e) {
+            return "2026-06";
+        }
     }
 
-    private List<DashboardDTO.KpiCard> getKpiCards(String startDate, String endDate, String caliberType) {
-        String sql = """
-            SELECT
-              sum(b.revenue) as revenue,
-              sum(b.ftp_cost) as ftp_cost,
-              sum(b.risk_cost) as risk_cost,
-              sum(b.op_cost) as op_cost,
-              sum(b.net_profit) as net_profit,
-              sum(b.loan_revenue) as loan_revenue,
-              sum(b.loan_ftp_cost) as loan_ftp_cost,
-              sum(b.loan_risk_cost) as loan_risk_cost,
-              sum(b.loan_op_cost) as loan_op_cost,
-              sum(b.loan_profit) as loan_profit,
-              sum(b.deposit_revenue) as deposit_revenue,
-              sum(b.deposit_interest) as deposit_interest,
-              sum(b.deposit_op_cost) as deposit_op_cost,
-              sum(b.deposit_profit) as deposit_profit
-            FROM biz_ledger b
-            WHERE b.stat_date >= ? AND b.stat_date <= ? AND b.caliber_type = ?
-            """;
-        Map<String, Object> data = jdbcTemplate.queryForMap(sql, startDate, endDate, caliberType);
+    /**
+     * 智能获取期间：如果指定期间没有数据，自动使用最新期间
+     */
+    private String getEffectivePeriod(String startDate) {
+        String requestedPeriod = startDate.substring(0, 7);
+        Integer count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM dw_indicator_fact WHERE period = ? AND period_type = 'MONTH'",
+            Integer.class, requestedPeriod);
+        if (count != null && count > 0) {
+            return requestedPeriod;
+        }
+        return getLatestPeriod();
+    }
 
-        List<DashboardDTO.KpiCard> cards = new ArrayList<>();
-        cards.add(buildCard("总利润", toBD(data.get("net_profit")), "#52c41a"));
-        cards.add(buildCard("贷款利润", toBD(data.get("loan_profit")), "#1890ff"));
-        cards.add(buildCard("存款利润", toBD(data.get("deposit_profit")), "#722ed1"));
-        cards.add(buildCard("贷款收入", toBD(data.get("loan_revenue")), "#36cfc9"));
-        cards.add(buildCard("存款收入", toBD(data.get("deposit_revenue")), "#b37feb"));
-        cards.add(buildCard("FTP成本", toBD(data.get("ftp_cost")), "#fa8c16"));
-        cards.add(buildCard("风险成本", toBD(data.get("risk_cost")), "#f5222d"));
-        cards.add(buildCard("运营成本", toBD(data.get("op_cost")), "#8c8c8c"));
+    @Override
+    public DashboardDTO getDashboardData(String startDate, String endDate, String caliberType, Long orgScope) {
+        String period = getEffectivePeriod(startDate);
 
-        return cards;
+        // 从 dw_indicator_fact 获取汇总数据（dim_type = 'TOTAL'）
+        String sql = "SELECT indicator_code, calc_value FROM dw_indicator_fact " +
+            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = 'TOTAL' AND caliber_type = ? " +
+            "AND indicator_code IN ('TOTAL_PROFIT', 'LOAN_PROFIT', 'DEPOSIT_PROFIT', 'INTEREST_INCOME', 'FTP_INCOME', 'FTP_COST', 'RISK_COST', 'OP_COST')";
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, period, caliberType);
+
+        // 构建指标值映射
+        Map<String, BigDecimal> indicatorMap = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            String code = (String) row.get("indicator_code");
+            BigDecimal value = (BigDecimal) row.get("calc_value");
+            indicatorMap.put(code, value);
+        }
+
+        // 构建 KPI 卡片
+        List<DashboardDTO.KpiCard> kpiCards = new ArrayList<>();
+        kpiCards.add(createKpiCard("TOTAL_PROFIT", "总利润", indicatorMap.getOrDefault("TOTAL_PROFIT", BigDecimal.ZERO), "万元"));
+        kpiCards.add(createKpiCard("LOAN_PROFIT", "贷款利润", indicatorMap.getOrDefault("LOAN_PROFIT", BigDecimal.ZERO), "万元"));
+        kpiCards.add(createKpiCard("DEPOSIT_PROFIT", "存款利润", indicatorMap.getOrDefault("DEPOSIT_PROFIT", BigDecimal.ZERO), "万元"));
+        kpiCards.add(createKpiCard("INTEREST_INCOME", "利息收入", indicatorMap.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO), "万元"));
+
+        // 构建瀑布图数据
+        DashboardDTO.WaterfallData waterfall = new DashboardDTO.WaterfallData();
+        BigDecimal revenue = indicatorMap.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO);
+        BigDecimal ftpCost = indicatorMap.getOrDefault("FTP_COST", BigDecimal.ZERO);
+        BigDecimal riskCost = indicatorMap.getOrDefault("RISK_COST", BigDecimal.ZERO);
+        BigDecimal opCost = indicatorMap.getOrDefault("OP_COST", BigDecimal.ZERO);
+        BigDecimal netProfit = indicatorMap.getOrDefault("TOTAL_PROFIT", BigDecimal.ZERO);
+
+        waterfall.setRevenue(revenue);
+        waterfall.setFtpCost(ftpCost);
+        waterfall.setRiskCost(riskCost);
+        waterfall.setOpCost(opCost);
+        waterfall.setNetProfit(netProfit);
+        waterfall.setFtpCostRatio(calculateRatio(ftpCost, revenue));
+        waterfall.setRiskCostRatio(calculateRatio(riskCost, revenue));
+        waterfall.setOpCostRatio(calculateRatio(opCost, revenue));
+
+        // 构建趋势数据
+        DashboardDTO.TrendData trend = getTrendData(endDate, caliberType);
+
+        // 构建维度概览
+        List<DashboardDTO.DimOverview> dimOverviews = new ArrayList<>();
+        dimOverviews.add(getDimOverview("ORG", startDate, endDate, caliberType));
+
+        // 组装结果
+        DashboardDTO dashboard = new DashboardDTO();
+        dashboard.setKpiCards(kpiCards);
+        dashboard.setWaterfall(waterfall);
+        dashboard.setTrend(trend);
+        dashboard.setDimOverviews(dimOverviews);
+        dashboard.setAlerts(new ArrayList<>());
+
+        return dashboard;
     }
 
     @Override
     public DashboardDTO.WaterfallData getWaterfallData(String startDate, String endDate, String caliberType) {
-        String sql = """
-            SELECT
-              sum(b.revenue) as revenue,
-              sum(b.ftp_cost) as ftp_cost,
-              sum(b.risk_cost) as risk_cost,
-              sum(b.op_cost) as op_cost,
-              sum(b.net_profit) as net_profit
-            FROM biz_ledger b
-            WHERE b.stat_date >= ? AND b.stat_date <= ? AND b.caliber_type = ?
-            """;
-        Map<String, Object> data = jdbcTemplate.queryForMap(sql, startDate, endDate, caliberType);
+        String period = startDate.substring(0, 7);
+
+        String sql = "SELECT indicator_code, calc_value FROM dw_indicator_fact " +
+            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = 'TOTAL' AND caliber_type = ? " +
+            "AND indicator_code IN ('INTEREST_INCOME', 'FTP_COST', 'RISK_COST', 'OP_COST', 'TOTAL_PROFIT')";
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, period, caliberType);
+
+        Map<String, BigDecimal> indicatorMap = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            String code = (String) row.get("indicator_code");
+            BigDecimal value = (BigDecimal) row.get("calc_value");
+            indicatorMap.put(code, value);
+        }
 
         DashboardDTO.WaterfallData waterfall = new DashboardDTO.WaterfallData();
-        BigDecimal revenue = toBD(data.get("revenue"));
-        waterfall.setRevenue(revenue);
-        waterfall.setFtpCost(toBD(data.get("ftp_cost")));
-        waterfall.setRiskCost(toBD(data.get("risk_cost")));
-        waterfall.setOpCost(toBD(data.get("op_cost")));
-        waterfall.setNetProfit(toBD(data.get("net_profit")));
+        BigDecimal revenue = indicatorMap.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO);
+        BigDecimal ftpCost = indicatorMap.getOrDefault("FTP_COST", BigDecimal.ZERO);
+        BigDecimal riskCost = indicatorMap.getOrDefault("RISK_COST", BigDecimal.ZERO);
+        BigDecimal opCost = indicatorMap.getOrDefault("OP_COST", BigDecimal.ZERO);
+        BigDecimal netProfit = indicatorMap.getOrDefault("TOTAL_PROFIT", BigDecimal.ZERO);
 
-        if (revenue.compareTo(BigDecimal.ZERO) != 0) {
-            waterfall.setFtpCostRatio(waterfall.getFtpCost().multiply(new BigDecimal("100")).divide(revenue, 2, BigDecimal.ROUND_HALF_UP));
-            waterfall.setRiskCostRatio(waterfall.getRiskCost().multiply(new BigDecimal("100")).divide(revenue, 2, BigDecimal.ROUND_HALF_UP));
-            waterfall.setOpCostRatio(waterfall.getOpCost().multiply(new BigDecimal("100")).divide(revenue, 2, BigDecimal.ROUND_HALF_UP));
-        }
+        waterfall.setRevenue(revenue);
+        waterfall.setFtpCost(ftpCost);
+        waterfall.setRiskCost(riskCost);
+        waterfall.setOpCost(opCost);
+        waterfall.setNetProfit(netProfit);
+        waterfall.setFtpCostRatio(calculateRatio(ftpCost, revenue));
+        waterfall.setRiskCostRatio(calculateRatio(riskCost, revenue));
+        waterfall.setOpCostRatio(calculateRatio(opCost, revenue));
+
         return waterfall;
     }
 
     @Override
     public DashboardDTO.TrendData getTrendData(String endDate, String caliberType) {
-        String sql = """
-            SELECT b.account_period,
-              sum(b.revenue) as revenue,
-              sum(b.net_profit) as net_profit,
-              sum(b.ftp_cost) as ftp_cost,
-              sum(b.risk_cost) as risk_cost,
-              sum(b.op_cost) as op_cost
-            FROM biz_ledger b
-            WHERE b.account_period >= DATE_FORMAT(DATE_SUB(?, INTERVAL 11 MONTH), '%Y-%m')
-            AND b.account_period <= DATE_FORMAT(?, '%Y-%m')
-            AND b.caliber_type = ?
-            GROUP BY b.account_period
-            ORDER BY b.account_period
-            """;
+        // 根据endDate计算最近6个月的期间范围
+        String endPeriod = endDate.substring(0, 7); // YYYY-MM
+        // 计算6个月前的期间
+        java.time.YearMonth endYM = java.time.YearMonth.parse(endPeriod);
+        java.time.YearMonth startYM = endYM.minusMonths(5);
+        String startPeriod = startYM.toString();
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, endDate, endDate, caliberType);
-        DashboardDTO.TrendData trend = new DashboardDTO.TrendData();
-        trend.setMonths(new ArrayList<>());
-        trend.setRevenueTrend(new ArrayList<>());
-        trend.setProfitTrend(new ArrayList<>());
-        trend.setFtpCostTrend(new ArrayList<>());
-        trend.setRiskCostTrend(new ArrayList<>());
-        trend.setOpCostTrend(new ArrayList<>());
+        // 获取指定范围内的趋势数据
+        String sql = "SELECT period, indicator_code, calc_value FROM dw_indicator_fact " +
+            "WHERE indicator_code IN ('TOTAL_PROFIT', 'INTEREST_INCOME', 'FTP_COST', 'RISK_COST', 'OP_COST') " +
+            "AND period_type = 'MONTH' AND dim_type = 'TOTAL' AND caliber_type = ? " +
+            "AND period >= ? AND period <= ? " +
+            "ORDER BY period ASC";
 
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, caliberType, startPeriod, endPeriod);
+
+        // 按期间分组
+        Map<String, Map<String, BigDecimal>> periodMap = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
-            trend.getMonths().add(String.valueOf(row.get("account_period")));
-            trend.getRevenueTrend().add(toBD(row.get("revenue")));
-            trend.getProfitTrend().add(toBD(row.get("net_profit")));
-            trend.getFtpCostTrend().add(toBD(row.get("ftp_cost")));
-            trend.getRiskCostTrend().add(toBD(row.get("risk_cost")));
-            trend.getOpCostTrend().add(toBD(row.get("op_cost")));
+            String period = (String) row.get("period");
+            String indicatorCode = (String) row.get("indicator_code");
+            BigDecimal value = (BigDecimal) row.get("calc_value");
+
+            periodMap.computeIfAbsent(period, k -> new HashMap<>());
+            periodMap.get(period).put(indicatorCode, value);
         }
+
+        DashboardDTO.TrendData trend = new DashboardDTO.TrendData();
+        List<String> months = new ArrayList<>();
+        List<BigDecimal> profitTrend = new ArrayList<>();
+        List<BigDecimal> revenueTrend = new ArrayList<>();
+        List<BigDecimal> ftpCostTrend = new ArrayList<>();
+        List<BigDecimal> riskCostTrend = new ArrayList<>();
+        List<BigDecimal> opCostTrend = new ArrayList<>();
+
+        for (Map.Entry<String, Map<String, BigDecimal>> entry : periodMap.entrySet()) {
+            months.add(entry.getKey());
+            Map<String, BigDecimal> values = entry.getValue();
+            profitTrend.add(values.getOrDefault("TOTAL_PROFIT", BigDecimal.ZERO));
+            revenueTrend.add(values.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO));
+            ftpCostTrend.add(values.getOrDefault("FTP_COST", BigDecimal.ZERO));
+            riskCostTrend.add(values.getOrDefault("RISK_COST", BigDecimal.ZERO));
+            opCostTrend.add(values.getOrDefault("OP_COST", BigDecimal.ZERO));
+        }
+
+        trend.setMonths(months);
+        trend.setProfitTrend(profitTrend);
+        trend.setRevenueTrend(revenueTrend);
+        trend.setFtpCostTrend(ftpCostTrend);
+        trend.setRiskCostTrend(riskCostTrend);
+        trend.setOpCostTrend(opCostTrend);
+
         return trend;
     }
 
     @Override
     public DashboardDTO.DimOverview getDimOverview(String dimType, String startDate, String endDate, String caliberType) {
+        String period = startDate.substring(0, 7);
+
+        // 获取该维度的总利润前5名
+        String sql = "SELECT dim_name, calc_value FROM dw_indicator_fact " +
+            "WHERE indicator_code = 'TOTAL_PROFIT' AND period = ? AND period_type = 'MONTH' " +
+            "AND dim_type = ? AND caliber_type = ? " +
+            "ORDER BY calc_value DESC LIMIT 5";
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, period, dimType, caliberType);
+
         DashboardDTO.DimOverview overview = new DashboardDTO.DimOverview();
         overview.setDimType(dimType);
+        overview.setDimName(getDimName(dimType));
 
-        String idCol = getDimIdColumn(dimType);
-        overview.setDimName(getDimLabel(dimType));
-
-        // TOP5 - 使用 JOIN 查询
-        String topSql = String.format("""
-            SELECT dm.name, sum(b.net_profit) as net_profit, sum(b.revenue) as revenue
-            FROM biz_ledger b
-            JOIN dimension_master dm ON b.%s = dm.id
-            WHERE b.stat_date >= ? AND b.stat_date <= ? AND b.caliber_type = ?
-            GROUP BY dm.name
-            ORDER BY net_profit DESC
-            LIMIT 5
-            """, idCol);
-        List<Map<String, Object>> topRows = jdbcTemplate.queryForList(topSql, startDate, endDate, caliberType);
         List<DashboardDTO.DimTopItem> topItems = new ArrayList<>();
-        for (Map<String, Object> row : topRows) {
-            DashboardDTO.DimTopItem item = new DashboardDTO.DimTopItem();
-            item.setName(String.valueOf(row.get("name")));
-            item.setNetProfit(toBD(row.get("net_profit")));
-            topItems.add(item);
-        }
-        overview.setTopItems(topItems);
-
-        // 占比 - 使用 JOIN 查询
-        String pieSql = String.format("""
-            SELECT dm.name, sum(b.net_profit) as val
-            FROM biz_ledger b
-            JOIN dimension_master dm ON b.%s = dm.id
-            WHERE b.stat_date >= ? AND b.stat_date <= ? AND b.caliber_type = ?
-            GROUP BY dm.name
-            ORDER BY val DESC
-            """, idCol);
-        List<Map<String, Object>> pieRows = jdbcTemplate.queryForList(pieSql, startDate, endDate, caliberType);
-        BigDecimal total = pieRows.stream().map(r -> toBD(r.get("val"))).reduce(BigDecimal.ZERO, BigDecimal::add);
         List<DashboardDTO.DimPieItem> pieItems = new ArrayList<>();
-        for (Map<String, Object> row : pieRows) {
-            DashboardDTO.DimPieItem item = new DashboardDTO.DimPieItem();
-            item.setName(String.valueOf(row.get("name")));
-            item.setValue(toBD(row.get("val")));
-            if (total.compareTo(BigDecimal.ZERO) != 0) {
-                item.setRatio(item.getValue().multiply(new BigDecimal("100")).divide(total, 2, BigDecimal.ROUND_HALF_UP));
-            }
-            pieItems.add(item);
+
+        BigDecimal totalProfit = BigDecimal.ZERO;
+        for (Map<String, Object> row : rows) {
+            BigDecimal value = (BigDecimal) row.get("calc_value");
+            totalProfit = totalProfit.add(value);
         }
+
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> row = rows.get(i);
+            String name = (String) row.get("dim_name");
+            BigDecimal value = (BigDecimal) row.get("calc_value");
+
+            DashboardDTO.DimTopItem topItem = new DashboardDTO.DimTopItem();
+            topItem.setId((long) (i + 1));
+            topItem.setName(name);
+            topItem.setNetProfit(value);
+            topItem.setGrowth(BigDecimal.ZERO);
+            topItems.add(topItem);
+
+            DashboardDTO.DimPieItem pieItem = new DashboardDTO.DimPieItem();
+            pieItem.setName(name);
+            pieItem.setValue(value);
+            pieItem.setRatio(totalProfit.compareTo(BigDecimal.ZERO) > 0 ?
+                value.multiply(new BigDecimal("100")).divide(totalProfit, 2, BigDecimal.ROUND_HALF_UP) :
+                BigDecimal.ZERO);
+            pieItems.add(pieItem);
+        }
+
+        overview.setTopItems(topItems);
         overview.setPieItems(pieItems);
 
         return overview;
     }
 
-    private List<DashboardDTO.DimOverview> getAllDimOverviews(String startDate, String endDate, String caliberType) {
-        List<DashboardDTO.DimOverview> overviews = new ArrayList<>();
-        overviews.add(getDimOverview("ORG", startDate, endDate, caliberType));
-        overviews.add(getDimOverview("BIZ_LINE", startDate, endDate, caliberType));
-        overviews.add(getDimOverview("DEPT", startDate, endDate, caliberType));
-        overviews.add(getDimOverview("PRODUCT", startDate, endDate, caliberType));
-        overviews.add(getDimOverview("CHANNEL", startDate, endDate, caliberType));
-        overviews.add(getDimOverview("MANAGER", startDate, endDate, caliberType));
-        return overviews;
-    }
-
-    // === Helper Methods ===
-
     /**
-     * 维度ID列名映射（外键字段）
+     * 创建 KPI 卡片
      */
-    private String getDimIdColumn(String dimType) {
-        return switch (dimType) {
-            case "ORG" -> "org_id";
-            case "BIZ_LINE" -> "biz_line_id";
-            case "DEPT" -> "dept_id";
-            case "PRODUCT" -> "product_id";
-            case "CHANNEL" -> "channel_id";
-            case "MANAGER" -> "manager_id";
-            case "CUSTOMER" -> "customer_id";
-            default -> "org_id";
-        };
-    }
-
-    private String getDimLabel(String dimType) {
-        return switch (dimType) {
-            case "ORG" -> "机构维度";
-            case "BIZ_LINE" -> "条线维度";
-            case "DEPT" -> "部门维度";
-            case "PRODUCT" -> "产品维度";
-            case "CHANNEL" -> "渠道维度";
-            case "MANAGER" -> "客户经理维度";
-            case "CUSTOMER" -> "客户维度";
-            default -> "维度";
-        };
-    }
-
-    private BigDecimal toBD(Object val) {
-        if (val == null) return BigDecimal.ZERO;
-        if (val instanceof BigDecimal) return (BigDecimal) val;
-        return new BigDecimal(val.toString());
-    }
-
-    private DashboardDTO.KpiCard buildCard(String name, BigDecimal value, String color) {
+    private DashboardDTO.KpiCard createKpiCard(String code, String name, BigDecimal value, String unit) {
         DashboardDTO.KpiCard card = new DashboardDTO.KpiCard();
+        card.setMetricCode(code);
         card.setMetricName(name);
         card.setValue(value);
-        card.setColor(color);
-        card.setUnit("万元");
+        card.setUnit(unit);
+        card.setYoyGrowth(BigDecimal.ZERO);
+        card.setMomGrowth(BigDecimal.ZERO);
+        card.setBudgetRate(BigDecimal.ZERO);
+        card.setColor("#1890ff");
         return card;
+    }
+
+    /**
+     * 计算比率
+     */
+    private BigDecimal calculateRatio(BigDecimal numerator, BigDecimal denominator) {
+        if (denominator == null || denominator.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+        return numerator.multiply(new BigDecimal("100")).divide(denominator, 2, BigDecimal.ROUND_HALF_UP);
+    }
+
+    /**
+     * 获取维度中文名称
+     */
+    private String getDimName(String dimType) {
+        switch (dimType) {
+            case "ORG": return "机构";
+            case "BIZ_LINE": return "业务线";
+            case "DEPT": return "部门";
+            case "PRODUCT": return "产品";
+            case "CHANNEL": return "渠道";
+            case "MANAGER": return "客户经理";
+            case "CUSTOMER": return "客户";
+            default: return dimType;
+        }
     }
 }

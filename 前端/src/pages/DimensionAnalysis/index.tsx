@@ -27,8 +27,8 @@ const ALL_DIMS = ['ORG', 'BIZ_LINE', 'DEPT', 'PRODUCT', 'CHANNEL', 'MANAGER', 'C
 const DimensionAnalysis: React.FC = () => {
   const { dimType } = useParams<{ dimType: string }>();
   const [loading, setLoading] = useState(true);
-  const [caliberType] = useState('BOOK');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs('2025-06-01'), dayjs('2025-06-30')]);
+  const [caliberType] = useState('ASSESS');
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().startOf('month'), dayjs()]);
   const [quickSelect, setQuickSelect] = useState('thisMonth');
   const [treeData, setTreeData] = useState<any[]>([]);
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);

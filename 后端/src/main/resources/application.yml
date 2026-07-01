@@ -4,6 +4,10 @@ server:
   shutdown: graceful
 
 spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
   lifecycle:
     # 优雅停机超时时间（30秒）
     timeout-per-shutdown-phase: 30s

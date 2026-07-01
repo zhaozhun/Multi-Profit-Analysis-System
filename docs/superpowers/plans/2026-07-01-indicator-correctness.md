@@ -602,7 +602,7 @@ DEPOSIT_COUNT = 500       # 存款笔数
 # 贷款利率参数
 # ============================================
 LOAN_RATE_MIN = 0.03      # 最低3%
-LOAN_RATE_MAX = 0.15      # 最高15%
+LOAN_RATE_MAX = 0.08      # 最高8%(均值~5%,年化)
 LOAN_FTP_RATE_MIN = 0.01  # FTP利率1%-2%
 LOAN_FTP_RATE_MAX = 0.02
 LOAN_RISK_RATE_MIN = 0.001  # 风险成本率0.1%-0.3%
@@ -612,18 +612,20 @@ LOAN_RISK_RATE_MAX = 0.003
 # 存款利率参数
 # ============================================
 DEPOSIT_RATE_MIN = 0.01   # 最低1%
-DEPOSIT_RATE_MAX = 0.03   # 最高3%
+DEPOSIT_RATE_MAX = 0.025  # 最高2.5%
 DEPOSIT_FTP_RATE_MIN = 0.025  # FTP利率2.5%-3.5%
 DEPOSIT_FTP_RATE_MAX = 0.035
 
 # ============================================
-# 余额参数
+# 余额参数(目标:年利润~15亿,2026YTD~8亿)
+# 500笔贷款×均余额~5000万×利润率~5%/12≈月贷款利润1亿
+# 存款利润约占30%,月总利润~1.3亿,年~15.6亿
 # ============================================
-LOAN_BALANCE_MIN = 100_000      # 单笔最低10万
-LOAN_BALANCE_MAX = 50_000_000   # 单笔最高5000万
-DEPOSIT_BALANCE_MIN = 50_000    # 单笔最低5万
-DEPOSIT_BALANCE_MAX = 30_000_000 # 单笔最高3000万
-DAILY_VOLATILITY = 0.02         # 日波动±2%
+LOAN_BALANCE_MIN = 20_000_000    # 单笔最低2000万
+LOAN_BALANCE_MAX = 80_000_000    # 单笔最高8000万(均~5000万)
+DEPOSIT_BALANCE_MIN = 10_000_000  # 单笔最低1000万
+DEPOSIT_BALANCE_MAX = 50_000_000  # 单笔最高5000万
+DAILY_VOLATILITY = 0.01          # 日波动±1%(降低波动,利润更稳定)
 
 # ============================================
 # 日期范围

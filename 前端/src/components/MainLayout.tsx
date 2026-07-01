@@ -40,9 +40,31 @@ const MainLayout: React.FC = () => {
       ],
     },
     {
-      key: '/indicator-data',
+      key: 'indicator-data',
       icon: <LineChartOutlined />,
       label: '指标数据',
+      children: [
+        {
+          key: 'indicator-asset',
+          label: '资产',
+          children: [
+            { key: '/indicator-data/asset/interest', label: '利息收入' },
+            { key: '/indicator-data/asset/ftp', label: 'FTP成本' },
+            { key: '/indicator-data/asset/risk', label: '风险成本' },
+            { key: '/indicator-data/asset/operation', label: '运营成本' },
+          ],
+        },
+        {
+          key: 'indicator-liability',
+          label: '负债',
+          children: [
+            { key: '/indicator-data/liability/interest', label: '对客利息支出' },
+            { key: '/indicator-data/liability/ftp', label: 'FTP成本' },
+            { key: '/indicator-data/liability/risk', label: '风险成本' },
+            { key: '/indicator-data/liability/operation', label: '运营成本' },
+          ],
+        },
+      ],
     },
     {
       key: 'base-data',
@@ -71,41 +93,6 @@ const MainLayout: React.FC = () => {
             { key: '/base-data/indicator/cost', label: '成本指标' },
             { key: '/base-data/indicator/profit', label: '利润指标' },
             { key: '/base-data/indicator/efficiency', label: '效率指标' },
-          ],
-        },
-      ],
-    },
-    {
-      key: 'allocation',
-      icon: <AccountBookOutlined />,
-      label: '费用分摊',
-      children: [
-        {
-          key: 'allocation-config',
-          label: '⚙️ 分摊配置',
-          children: [
-            { key: '/allocation/cost-type', label: '费用类型' },
-            { key: '/allocation/factor', label: '分摊因子' },
-            { key: '/allocation/rule', label: '分摊规则' },
-          ],
-        },
-        {
-          key: 'allocation-manage',
-          label: '📋 费用管理',
-          children: [
-            { key: '/allocation/cost-record', label: '费用记录' },
-            { key: '/allocation/employee', label: '员工费用分摊' },
-            { key: '/allocation/product-commission', label: '产品分润' },
-            { key: '/allocation/operation-cost', label: '运营费用分摊' },
-          ],
-        },
-        {
-          key: 'allocation-result',
-          label: '📈 分摊结果',
-          children: [
-            { key: '/allocation/execution', label: '分摊执行' },
-            { key: '/allocation/result', label: '结果查询' },
-            { key: '/allocation/statistics', label: '统计分析' },
           ],
         },
       ],
@@ -146,11 +133,10 @@ const MainLayout: React.FC = () => {
       if (path.includes('/master/')) keys.push('master-data');
       if (path.includes('/indicator/')) keys.push('indicator');
     }
-    if (path.startsWith('/allocation')) {
-      keys.push('allocation');
-      if (['/allocation/cost-type', '/allocation/factor', '/allocation/rule'].includes(path)) keys.push('allocation-config');
-      if (['/allocation/cost-record', '/allocation/employee', '/allocation/product-commission', '/allocation/operation-cost'].includes(path)) keys.push('allocation-manage');
-      if (['/allocation/execution', '/allocation/result', '/allocation/statistics'].includes(path)) keys.push('allocation-result');
+    if (path.startsWith('/indicator-data')) {
+      keys.push('indicator-data');
+      if (path.includes('/asset/')) keys.push('indicator-asset');
+      if (path.includes('/liability/')) keys.push('indicator-liability');
     }
     if (path.startsWith('/report')) keys.push('report');
     return keys;

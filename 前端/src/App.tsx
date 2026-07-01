@@ -22,6 +22,7 @@ import RevenueIndicator from './pages/BaseData/Indicator/RevenueIndicator';
 import CostIndicator from './pages/BaseData/Indicator/CostIndicator';
 import ProfitIndicator from './pages/BaseData/Indicator/ProfitIndicator';
 import EfficiencyIndicator from './pages/BaseData/Indicator/EfficiencyIndicator';
+import IndicatorLibrary from './pages/BaseData/IndicatorLibrary';
 
 // 报表
 import Ledger from './pages/Report/Ledger';
@@ -29,21 +30,16 @@ import ProfitReport from './pages/Report/ProfitReport';
 import CustomReport from './pages/Report/CustomReport';
 import AiReport from './pages/Report/AiReport';
 
-// 费用分摊
-import CostTypePage from './pages/Allocation/CostType';
-import FactorManagePage from './pages/Allocation/FactorManage';
-import RuleConfigPage from './pages/Allocation/RuleConfig';
-import CostRecordPage from './pages/Allocation/CostRecord';
-import EmployeeAllocationPage from './pages/Allocation/EmployeeAllocation';
-import ProductCommissionPage from './pages/Allocation/ProductCommission';
-import OperationCostPage from './pages/Allocation/OperationCost';
-import ExecutionPage from './pages/Allocation/Execution';
-import ResultPage from './pages/Allocation/Result';
-import StatisticsPage from './pages/Allocation/Statistics';
-
 // 指标数据
 import IndicatorDataPage from './pages/BaseData/IndicatorData';
-import ExpenseDetailPage from './pages/BaseData/IndicatorData/ExpenseDetail';
+import AssetInterestIncome from './pages/BaseData/IndicatorData/AssetInterestIncome';
+import AssetFtpCost from './pages/BaseData/IndicatorData/AssetFtpCost';
+import AssetRiskCost from './pages/BaseData/IndicatorData/AssetRiskCost';
+import AssetOperationCost from './pages/BaseData/IndicatorData/AssetOperationCost';
+import LiabilityInterestExpense from './pages/BaseData/IndicatorData/LiabilityInterestExpense';
+import LiabilityFtpCost from './pages/BaseData/IndicatorData/LiabilityFtpCost';
+import LiabilityRiskCost from './pages/BaseData/IndicatorData/LiabilityRiskCost';
+import LiabilityOperationCost from './pages/BaseData/IndicatorData/LiabilityOperationCost';
 
 const App: React.FC = () => {
   return (
@@ -57,6 +53,7 @@ const App: React.FC = () => {
 
           {/* 基础数据 */}
           <Route path="base-data" element={<BaseDataIndex />} />
+          <Route path="base-data/indicator-library" element={<IndicatorLibrary />} />
           <Route path="base-data/master/org" element={<OrgMaster />} />
           <Route path="base-data/master/biz-line" element={<BizLineMaster />} />
           <Route path="base-data/master/dept" element={<DeptMaster />} />
@@ -77,25 +74,16 @@ const App: React.FC = () => {
           <Route path="report/ai" element={<AiReport />} />
           <Route path="data-governance" element={<DataGovernance />} />
 
-          {/* 费用分摊 - 基础配置 */}
-          <Route path="allocation/cost-type" element={<CostTypePage />} />
-          <Route path="allocation/factor" element={<FactorManagePage />} />
-          <Route path="allocation/rule" element={<RuleConfigPage />} />
-
-          {/* 费用分摊 - 费用管理 */}
-          <Route path="allocation/cost-record" element={<CostRecordPage />} />
-          <Route path="allocation/employee" element={<EmployeeAllocationPage />} />
-          <Route path="allocation/product-commission" element={<ProductCommissionPage />} />
-          <Route path="allocation/operation-cost" element={<OperationCostPage />} />
-
-          {/* 费用分摊 - 分摊结果 */}
-          <Route path="allocation/execution" element={<ExecutionPage />} />
-          <Route path="allocation/result" element={<ResultPage />} />
-          <Route path="allocation/statistics" element={<StatisticsPage />} />
-
           {/* 指标数据 */}
           <Route path="indicator-data" element={<IndicatorDataPage />} />
-          <Route path="indicator-data/expense/:costType" element={<ExpenseDetailPage />} />
+          <Route path="indicator-data/asset/interest" element={<AssetInterestIncome />} />
+          <Route path="indicator-data/asset/ftp" element={<AssetFtpCost />} />
+          <Route path="indicator-data/asset/risk" element={<AssetRiskCost />} />
+          <Route path="indicator-data/asset/operation" element={<AssetOperationCost />} />
+          <Route path="indicator-data/liability/interest" element={<LiabilityInterestExpense />} />
+          <Route path="indicator-data/liability/ftp" element={<LiabilityFtpCost />} />
+          <Route path="indicator-data/liability/risk" element={<LiabilityRiskCost />} />
+          <Route path="indicator-data/liability/operation" element={<LiabilityOperationCost />} />
         </Route>
       </Routes>
     </ConfigProvider>

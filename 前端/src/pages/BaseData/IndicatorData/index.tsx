@@ -7,20 +7,32 @@ const { Option } = Select;
 const { Panel } = Collapse;
 
 interface IndicatorData {
+  [key: string]: any;
   code: string;
   name: string;
   value: number | null;
   unit: string;
   period: string;
+  today?: number;
+  monthTotal?: number;
+  yearTotal?: number;
+  monthDailyAvg?: number;
+  yearDailyAvg?: number;
+  balanceToday?: number;
+  balanceMonthAvg?: number;
+  balanceYearAvg?: number;
+  avgRate?: number;
 }
 
 interface CostType {
+  [key: string]: any;
   code: string;
   name: string;
   businessLine: string;
 }
 
 interface CostAllocationData {
+  [key: string]: any;
   costType: string;
   totalAmount: number;
   total: number;
@@ -28,6 +40,7 @@ interface CostAllocationData {
 }
 
 interface CostOriginalData {
+  [key: string]: any;
   costType: string;
   dimType: string;
   details: any[];
@@ -51,7 +64,7 @@ const IndicatorDataPage: React.FC = () => {
     setLoading(true);
     try {
       const data = await getIndicatorSummary(businessLine, '2026-01');
-      setIndicators(data);
+      setIndicators(data as unknown as IndicatorData[]);
       setSelectedIndicator(null);
       setSelectedCostType(null);
       setAllocationData(null);
@@ -74,7 +87,7 @@ const IndicatorDataPage: React.FC = () => {
       // 如果是运营成本，加载费用类型
       try {
         const types = await getCostTypes(businessLine);
-        setCostTypes(types);
+        setCostTypes(types as unknown as CostType[]);
       } catch (error) {
         console.error('加载费用类型失败:', error);
         message.error('加载费用类型失败');
@@ -93,8 +106,8 @@ const IndicatorDataPage: React.FC = () => {
         getCostAllocationResult(costType, '2026-01'),
         getCostOriginalData(costType, '2026-01', 'DEPT')
       ]);
-      setAllocationData(allocation);
-      setOriginalData(original);
+      setAllocationData(allocation as unknown as CostAllocationData);
+      setOriginalData(original as unknown as CostOriginalData);
     } catch (error) {
       console.error('加载费用数据失败:', error);
       message.error('加载费用数据失败');
@@ -103,12 +116,20 @@ const IndicatorDataPage: React.FC = () => {
     }
   };
 
+  // 格式化金额
+  const formatAmount = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return '-';
+    return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   // 指标列表表格列
   const indicatorColumns = [
     {
       title: '指标名称',
       dataIndex: 'name',
       key: 'name',
+      width: 120,
+      fixed: 'left' as const,
       render: (text: string, record: IndicatorData) => (
         <span
           style={{
@@ -123,18 +144,45 @@ const IndicatorDataPage: React.FC = () => {
       ),
     },
     {
+      title: '当天',
+      dataIndex: 'today',
+      key: 'today',
+      width: 120,
+      render: (value: number | undefined) => formatAmount(value),
+    },
+    {
+      title: '当月累计',
+      dataIndex: 'monthTotal',
+      key: 'monthTotal',
+      width: 120,
+      render: (value: number | undefined) => formatAmount(value),
+    },
+    {
+      title: '当年累计',
+      dataIndex: 'yearTotal',
+      key: 'yearTotal',
+      width: 120,
+      render: (value: number | undefined) => formatAmount(value),
+    },
+    {
       title: '月日均',
-      dataIndex: 'value',
-      key: 'value',
-      render: (value: number | null, record: IndicatorData) => (
-        <span>
-          {value !== null ? value.toFixed(2) : '-'} {record.unit}
-        </span>
-      ),
+      dataIndex: 'monthDailyAvg',
+      key: 'monthDailyAvg',
+      width: 120,
+      render: (value: number | undefined) => formatAmount(value),
+    },
+    {
+      title: '年日均',
+      dataIndex: 'yearDailyAvg',
+      key: 'yearDailyAvg',
+      width: 120,
+      render: (value: number | undefined) => formatAmount(value),
     },
     {
       title: '操作',
       key: 'action',
+      width: 100,
+      fixed: 'right' as const,
       render: (_: any, record: IndicatorData) => (
         <a onClick={() => handleIndicatorClick(record.code)}>查看详情</a>
       ),
@@ -312,14 +360,34 @@ const IndicatorDataPage: React.FC = () => {
           {/* 如果不是运营成本，显示指标详情 */}
           {!selectedIndicator.includes('OP') && (
             <div>
-              <Descriptions>
+              <Descriptions column={3}>
                 <Descriptions.Item label="指标编码">{selectedIndicator}</Descriptions.Item>
                 <Descriptions.Item label="指标名称">{selectedIndicatorData?.name}</Descriptions.Item>
-                <Descriptions.Item label="月日均值">
-                  {selectedIndicatorData?.value !== null ? selectedIndicatorData?.value?.toFixed(2) : '-'} {selectedIndicatorData?.unit}
-                </Descriptions.Item>
+                <Descriptions.Item label="单位">{selectedIndicatorData?.unit}</Descriptions.Item>
               </Descriptions>
-              <p style={{ marginTop: 16, color: '#999' }}>指标详情区域（待实现）</p>
+
+              {/* 利息收入显示贷款余额信息 */}
+              {selectedIndicator === 'INTEREST_INCOME' && selectedIndicatorData?.balanceToday !== undefined && (
+                <Card title="贷款余额信息" style={{ marginTop: 16 }} size="small">
+                  <Descriptions column={4}>
+                    <Descriptions.Item label="当天余额">{formatAmount(selectedIndicatorData.balanceToday)} 元</Descriptions.Item>
+                    <Descriptions.Item label="月日均余额">{formatAmount(selectedIndicatorData.balanceMonthAvg)} 元</Descriptions.Item>
+                    <Descriptions.Item label="年日均余额">{formatAmount(selectedIndicatorData.balanceYearAvg)} 元</Descriptions.Item>
+                    <Descriptions.Item label="平均利率">{selectedIndicatorData.avgRate?.toFixed(2)}%</Descriptions.Item>
+                  </Descriptions>
+                </Card>
+              )}
+
+              {/* 对客利息支出显示存款余额信息 */}
+              {selectedIndicator === 'INTEREST_EXPENSE' && selectedIndicatorData?.balanceToday !== undefined && (
+                <Card title="存款余额信息" style={{ marginTop: 16 }} size="small">
+                  <Descriptions column={3}>
+                    <Descriptions.Item label="当天余额">{formatAmount(selectedIndicatorData.balanceToday)} 元</Descriptions.Item>
+                    <Descriptions.Item label="月日均余额">{formatAmount(selectedIndicatorData.balanceMonthAvg)} 元</Descriptions.Item>
+                    <Descriptions.Item label="年日均余额">{formatAmount(selectedIndicatorData.balanceYearAvg)} 元</Descriptions.Item>
+                  </Descriptions>
+                </Card>
+              )}
             </div>
           )}
         </Card>

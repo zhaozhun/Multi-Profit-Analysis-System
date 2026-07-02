@@ -63,7 +63,7 @@ export interface IndicatorDetail {
  */
 export const getAtomicIndicators = async (): Promise<AtomicIndicator[]> => {
   const response = await api.get('/atomic');
-  return response.data;
+  return response.data.data;
 };
 
 /**
@@ -71,7 +71,7 @@ export const getAtomicIndicators = async (): Promise<AtomicIndicator[]> => {
  */
 export const getDerivedIndicators = async (): Promise<DerivedIndicator[]> => {
   const response = await api.get('/derived');
-  return response.data;
+  return response.data.data;
 };
 
 /**

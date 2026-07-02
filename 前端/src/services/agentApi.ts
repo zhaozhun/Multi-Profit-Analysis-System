@@ -26,12 +26,14 @@ export interface AgentInfo {
 }
 
 // API服务
+// 后端 AiController 端点: /api/ai/agents、/api/ai/agent/chat、/api/ai/session/{sessionId}
+// api.ts 的 axios baseURL 为 /api,故此处路径为 /ai/...
 export const agentApi = {
   /**
    * Agent对话
    */
   chat: async (request: AgentChatRequest): Promise<AgentChatResponse> => {
-    const response = await api.post('/agent/chat', request);
+    const response = await api.post('/ai/agent/chat', request);
     return response as unknown as AgentChatResponse;
   },
 
@@ -39,7 +41,7 @@ export const agentApi = {
    * 获取Agent列表
    */
   listAgents: async (): Promise<AgentInfo[]> => {
-    const response = await api.get('/agent/list');
+    const response = await api.get('/ai/agents');
     return response as unknown as AgentInfo[];
   },
 
@@ -47,7 +49,7 @@ export const agentApi = {
    * 清除会话
    */
   clearSession: async (sessionId: string): Promise<void> => {
-    await api.delete(`/agent/session/${sessionId}`);
+    await api.delete(`/ai/session/${sessionId}`);
   },
 };
 

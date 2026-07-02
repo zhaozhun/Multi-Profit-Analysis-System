@@ -3,12 +3,16 @@ package com.multiprofit.controller;
 import com.multiprofit.ai.ModelApiClient;
 import com.multiprofit.dto.AiChatRequest;
 import com.multiprofit.dto.ApiResponse;
+import com.multiprofit.util.IndicatorFactSql;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
 
+/**
+ * AI数据探查 - 自然语言转SQL，数据源dw_indicator_fact(EAV透视)
+ */
 @RestController
 @RequestMapping("/api/ai-explore")
 public class AiExploreController {
@@ -19,17 +23,16 @@ public class AiExploreController {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    private static final String PERIOD = "2026-06";
+
     /**
      * AI数据探查 - 自然语言查询
      */
     @PostMapping("/query")
     public ApiResponse<Map<String, Object>> explore(@RequestBody AiChatRequest request) {
         String question = request.getMessage();
-
-        // 1. 根据问题生成SQL
         String sql = generateSqlFromQuestion(question);
 
-        // 2. 执行查询
         List<Map<String, Object>> data = new ArrayList<>();
         String errorMsg = null;
         try {
@@ -38,10 +41,7 @@ public class AiExploreController {
             errorMsg = "SQL执行失败: " + e.getMessage();
         }
 
-        // 3. 生成分析结论
         String analysis = generateAnalysis(question, data, errorMsg);
-
-        // 4. 推荐图表类型
         String chartType = recommendChartType(question);
 
         Map<String, Object> result = new HashMap<>();
@@ -55,57 +55,48 @@ public class AiExploreController {
     }
 
     /**
-     * 根据问题生成SQL
+     * 根据问题生成SQL - 基于EAV透视
      */
     private String generateSqlFromQuestion(String question) {
-        // 简化实现：根据关键词匹配生成SQL
         String q = question.toLowerCase();
 
         if (q.contains("排名") || q.contains("最高") || q.contains("最低")) {
-            if (q.contains("分行") || q.contains("机构")) {
-                return "SELECT org_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC LIMIT 10";
-            }
-            if (q.contains("产品")) {
-                return "SELECT product_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY product_name ORDER BY net_profit DESC LIMIT 10";
-            }
-            if (q.contains("条线")) {
-                return "SELECT biz_line_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY biz_line_name ORDER BY net_profit DESC";
-            }
-            if (q.contains("客户经理")) {
-                return "SELECT manager_name as name, sum(net_profit) as net_profit, count(distinct customer_name) as customer_cnt " +
-                    "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY manager_name ORDER BY net_profit DESC LIMIT 10";
-            }
-            return "SELECT org_name as name, sum(net_profit) as net_profit " +
-                "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC LIMIT 10";
+            String dim = "ORG", name = "机构";
+            if (q.contains("产品")) { dim = "PRODUCT"; name = "产品"; }
+            else if (q.contains("条线")) { dim = "BIZ_LINE"; name = "条线"; }
+            else if (q.contains("客户经理")) { dim = "MANAGER"; name = "客户经理"; }
+            else if (q.contains("部门")) { dim = "DEPT"; name = "部门"; }
+            return "SELECT t.dim_name as name, t.net_profit, t.revenue " +
+                "FROM (" + IndicatorFactSql.pivot(dim, PERIOD) + ") t " +
+                "ORDER BY t.net_profit DESC LIMIT 10";
         }
 
         if (q.contains("趋势") || q.contains("变化")) {
-            return "SELECT account_period as period, sum(revenue) as revenue, sum(net_profit) as net_profit " +
-                "FROM dw_indicator_fact GROUP BY account_period ORDER BY account_period";
+            // 全行利润趋势
+            return IndicatorFactSql.metricTrend(IndicatorFactSql.TOTAL_PROFIT, "TOTAL")
+                .replace("as value", "as net_profit");
         }
 
         if (q.contains("成本")) {
             if (q.contains("结构") || q.contains("占比")) {
-                return "SELECT 'FTP成本' as name, sum(ftp_cost) as value FROM dw_indicator_fact WHERE account_period = '2026-05' " +
-                    "UNION ALL SELECT '风险成本', sum(risk_cost) FROM dw_indicator_fact WHERE account_period = '2026-05' " +
-                    "UNION ALL SELECT '运营成本', sum(op_cost) FROM dw_indicator_fact WHERE account_period = '2026-05'";
+                return "SELECT 'FTP成本' as name, t.ftp_cost as value FROM (" + IndicatorFactSql.pivotTotal(PERIOD) + ") t " +
+                    "UNION ALL SELECT '风险成本', t.risk_cost FROM (" + IndicatorFactSql.pivotTotal(PERIOD) + ") t " +
+                    "UNION ALL SELECT '运营成本', t.op_cost FROM (" + IndicatorFactSql.pivotTotal(PERIOD) + ") t";
             }
-            return "SELECT org_name as name, sum(ftp_cost) as ftp_cost, sum(risk_cost) as risk_cost, sum(op_cost) as op_cost " +
-                "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY sum(ftp_cost+risk_cost+op_cost) DESC";
+            return "SELECT t.dim_name as name, t.ftp_cost, t.risk_cost, t.op_cost " +
+                "FROM (" + IndicatorFactSql.pivot("ORG", PERIOD) + ") t " +
+                "ORDER BY (t.ftp_cost+t.risk_cost+t.op_cost) DESC";
         }
 
         if (q.contains("客户")) {
-            return "SELECT customer_name as name, sum(net_profit) as net_profit, sum(revenue) as revenue " +
-                "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY customer_name ORDER BY net_profit DESC LIMIT 10";
+            return "SELECT t.dim_name as name, t.net_profit, t.revenue " +
+                "FROM (" + IndicatorFactSql.pivot("CUSTOMER", PERIOD) + ") t " +
+                "ORDER BY t.net_profit DESC LIMIT 10";
         }
 
-        // 默认：返回各机构汇总
-        return "SELECT org_name as name, sum(revenue) as revenue, sum(net_profit) as net_profit, " +
-            "sum(ftp_cost) as ftp_cost, sum(risk_cost) as risk_cost, sum(op_cost) as op_cost " +
-            "FROM dw_indicator_fact WHERE account_period = '2026-05' GROUP BY org_name ORDER BY net_profit DESC";
+        // 默认：各机构汇总
+        return "SELECT t.dim_name as name, t.revenue, t.net_profit, t.ftp_cost, t.risk_cost, t.op_cost " +
+            "FROM (" + IndicatorFactSql.pivot("ORG", PERIOD) + ") t ORDER BY t.net_profit DESC";
     }
 
     /**
@@ -115,17 +106,14 @@ public class AiExploreController {
         if (errorMsg != null) {
             return "查询出错：" + errorMsg;
         }
-
         if (data.isEmpty()) {
             return "未查询到相关数据。";
         }
 
         StringBuilder sb = new StringBuilder();
-
-        // 根据数据生成分析
         if (data.get(0).containsKey("net_profit")) {
             Map<String, Object> top = data.get(0);
-            sb.append(String.format("根据数据分析：\n\n"));
+            sb.append("根据数据分析：\n\n");
             sb.append(String.format("📊 **排名第一：%s**，净利润 %.0f 万元\n",
                 top.get("name"), toDouble(top.get("net_profit"))));
 
@@ -135,11 +123,9 @@ public class AiExploreController {
                     second.get("name"), toDouble(second.get("net_profit"))));
             }
 
-            // 计算合计
             double totalProfit = data.stream().mapToDouble(d -> toDouble(d.get("net_profit"))).sum();
             sb.append(String.format("\n💰 **合计净利润：%.0f 万元**\n", totalProfit));
 
-            // 计算TOP3占比
             if (data.size() >= 3) {
                 double top3Profit = data.subList(0, 3).stream().mapToDouble(d -> toDouble(d.get("net_profit"))).sum();
                 double top3Ratio = totalProfit != 0 ? top3Profit / totalProfit * 100 : 0;

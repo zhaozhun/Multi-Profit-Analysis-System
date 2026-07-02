@@ -10,9 +10,10 @@ cd "$(dirname "$0")"
 
 DB_HOST="localhost"
 DB_PORT="3306"
-DB_USER="mpuser"
-DB_PASS="<DB_PASSWORD>"
+DB_USER="${DB_USER:-mpuser}"
+DB_PASS="${DB_PASSWORD:-${DB_PASS:-}}"
 DB_NAME="multi_profit"
+if [ -z "$DB_PASS" ]; then echo "错误:请通过环境变量 DB_PASSWORD 提供数据库密码"; exit 1; fi
 
 echo "=========================================="
 echo "开始生成测试数据..."

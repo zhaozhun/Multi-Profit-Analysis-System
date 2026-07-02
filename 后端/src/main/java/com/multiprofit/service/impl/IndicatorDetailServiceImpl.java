@@ -5,12 +5,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.util.*;
 
 /**
  * 指标明细服务实现类
- * 数据源：dw_indicator_fact（预计算数据）
+ * 数据源：dwd_loan_detail / dwd_deposit_detail（DWD月度明细，含余额/利息/各成本/维度名）
+ * 注：原实现查 dw_indicator_fact 用了不存在的 indicator_code(LOAN_BALANCE/INTEREST_INCOME 等)，
+ * 且 EAV 表不存余额/笔数，故改为直查 DWD 明细表聚合。
  */
 @Service
 public class IndicatorDetailServiceImpl implements IndicatorDetailService {
@@ -18,57 +19,71 @@ public class IndicatorDetailServiceImpl implements IndicatorDetailService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** 维度类型 → DWD表维度列名(snake_case) */
+    private static String dimColumn(String dimension) {
+        if (dimension == null) return null;
+        return switch (dimension) {
+            case "ORG" -> "org_name";
+            case "BIZ_LINE" -> "biz_line_name";
+            case "PRODUCT" -> "product_name";
+            case "CHANNEL" -> "channel_name";
+            case "MANAGER" -> "manager_name";
+            case "CUSTOMER" -> "customer_name";
+            case "DEPT" -> "dept_name";
+            default -> null;
+        };
+    }
+
+    /** 取 period 的年份前缀(YYYY)用于 YTD 累计 */
+    private static String yearOf(String period) {
+        return period != null && period.length() >= 4 ? period.substring(0, 4) : "2026";
+    }
+
     @Override
     public Map<String, Object> getLoanIndicatorSummary(String period, String caliberType) {
-        // 从 dw_indicator_fact 读取贷款指标汇总
-        String sql = "SELECT indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = 'TOTAL' AND caliber_type = ? " +
-            "AND indicator_code IN ('LOAN_BALANCE', 'LOAN_COUNT', 'INTEREST_INCOME', 'FTP_COST', 'RISK_COST', 'OP_COST', 'LOAN_PROFIT')";
+        // 当月汇总
+        String sql = "SELECT " +
+            "COUNT(*) AS total_count, " +
+            "COALESCE(SUM(loan_balance),0) AS total_balance, " +
+            "COALESCE(SUM(loan_monthly_interest),0) AS total_monthly_interest, " +
+            "COALESCE(SUM(ftp_cost),0) AS total_ftp_cost, " +
+            "COALESCE(SUM(risk_cost),0) AS total_risk_cost, " +
+            "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+            "COALESCE(SUM(loan_profit),0) AS total_profit, " +
+            "CASE WHEN SUM(loan_balance)>0 THEN SUM(loan_monthly_interest)/SUM(loan_balance) ELSE 0 END AS avg_rate, " +
+            "COALESCE(SUM(loan_monthly_interest),0)/30 AS total_daily_interest " +
+            "FROM dwd_loan_detail WHERE account_period = ? AND caliber_type = ?";
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, period, caliberType);
+        Map<String, Object> summary = new HashMap<>(jdbcTemplate.queryForMap(sql, period, caliberType));
 
-        Map<String, BigDecimal> indicatorMap = new HashMap<>();
-        for (Map<String, Object> row : rows) {
-            String code = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-            indicatorMap.put(code, value);
-        }
-
-        Map<String, Object> summary = new HashMap<>();
-        summary.put("total_count", indicatorMap.getOrDefault("LOAN_COUNT", BigDecimal.ZERO).intValue());
-        summary.put("total_balance", indicatorMap.getOrDefault("LOAN_BALANCE", BigDecimal.ZERO));
-        summary.put("total_monthly_interest", indicatorMap.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO));
-        summary.put("total_ftp_cost", indicatorMap.getOrDefault("FTP_COST", BigDecimal.ZERO));
-        summary.put("total_risk_cost", indicatorMap.getOrDefault("RISK_COST", BigDecimal.ZERO));
-        summary.put("total_op_cost", indicatorMap.getOrDefault("OP_COST", BigDecimal.ZERO));
-        summary.put("total_profit", indicatorMap.getOrDefault("LOAN_PROFIT", BigDecimal.ZERO));
+        // 当年累计利息(YTD: 同年且 <= 当期)
+        String ytdSql = "SELECT COALESCE(SUM(loan_monthly_interest),0) AS total_cumulative_interest " +
+            "FROM dwd_loan_detail WHERE account_period LIKE ? AND account_period <= ? AND caliber_type = ?";
+        Map<String, Object> ytd = jdbcTemplate.queryForMap(ytdSql, yearOf(period) + "-%", period, caliberType);
+        summary.put("total_cumulative_interest", ytd.get("total_cumulative_interest"));
 
         return summary;
     }
 
     @Override
     public Map<String, Object> getDepositIndicatorSummary(String period, String caliberType) {
-        // 从 dw_indicator_fact 读取存款指标汇总
-        String sql = "SELECT indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = 'TOTAL' AND caliber_type = ? " +
-            "AND indicator_code IN ('DEPOSIT_BALANCE', 'DEPOSIT_COUNT', 'FTP_INCOME', 'INTEREST_EXPENSE', 'LIABILITY_OP_COST', 'DEPOSIT_PROFIT')";
+        String sql = "SELECT " +
+            "COUNT(*) AS total_count, " +
+            "COALESCE(SUM(deposit_balance),0) AS total_balance, " +
+            "COALESCE(SUM(deposit_monthly_interest),0) AS total_monthly_interest, " +
+            "COALESCE(SUM(ftp_income),0) AS total_ftp_income, " +
+            "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+            "COALESCE(SUM(deposit_profit),0) AS total_profit, " +
+            "CASE WHEN SUM(deposit_balance)>0 THEN SUM(deposit_monthly_interest)/SUM(deposit_balance) ELSE 0 END AS avg_rate, " +
+            "COALESCE(SUM(deposit_monthly_interest),0)/30 AS total_daily_interest " +
+            "FROM dwd_deposit_detail WHERE account_period = ? AND caliber_type = ?";
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, period, caliberType);
+        Map<String, Object> summary = new HashMap<>(jdbcTemplate.queryForMap(sql, period, caliberType));
 
-        Map<String, BigDecimal> indicatorMap = new HashMap<>();
-        for (Map<String, Object> row : rows) {
-            String code = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-            indicatorMap.put(code, value);
-        }
-
-        Map<String, Object> summary = new HashMap<>();
-        summary.put("total_count", indicatorMap.getOrDefault("DEPOSIT_COUNT", BigDecimal.ZERO).intValue());
-        summary.put("total_balance", indicatorMap.getOrDefault("DEPOSIT_BALANCE", BigDecimal.ZERO));
-        summary.put("total_ftp_income", indicatorMap.getOrDefault("FTP_INCOME", BigDecimal.ZERO));
-        summary.put("total_monthly_interest", indicatorMap.getOrDefault("INTEREST_EXPENSE", BigDecimal.ZERO));
-        summary.put("total_op_cost", indicatorMap.getOrDefault("LIABILITY_OP_COST", BigDecimal.ZERO));
-        summary.put("total_profit", indicatorMap.getOrDefault("DEPOSIT_PROFIT", BigDecimal.ZERO));
+        String ytdSql = "SELECT COALESCE(SUM(deposit_monthly_interest),0) AS total_cumulative_interest " +
+            "FROM dwd_deposit_detail WHERE account_period LIKE ? AND account_period <= ? AND caliber_type = ?";
+        Map<String, Object> ytd = jdbcTemplate.queryForMap(ytdSql, yearOf(period) + "-%", period, caliberType);
+        summary.put("total_cumulative_interest", ytd.get("total_cumulative_interest"));
 
         return summary;
     }
@@ -77,51 +92,41 @@ public class IndicatorDetailServiceImpl implements IndicatorDetailService {
     public Map<String, Object> getLoanIndicatorDetailList(String period, String caliberType,
                                                            String dimension, String dimensionValue,
                                                            int page, int pageSize) {
-        // 从 dw_indicator_fact 读取贷款明细（按维度）
-        String dimType = dimension != null ? dimension : "TOTAL";
-        String sql = "SELECT dim_name, indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = ? AND caliber_type = ? " +
-            "AND indicator_code IN ('LOAN_BALANCE', 'INTEREST_INCOME', 'FTP_COST', 'RISK_COST', 'OP_COST', 'LOAN_PROFIT')";
-
-        List<Object> params = new ArrayList<>(Arrays.asList(period, dimType, caliberType));
-
-        if (dimensionValue != null && !dimensionValue.isEmpty()) {
-            sql += " AND dim_name = ?";
+        String dimCol = dimColumn(dimension);
+        List<Object> params = new ArrayList<>();
+        // 按维度值筛选(可选)
+        String dimFilter = "";
+        if (dimensionValue != null && !dimensionValue.isEmpty() && dimCol != null) {
+            dimFilter = " AND " + dimCol + " = ?";
             params.add(dimensionValue);
         }
 
-        sql += " ORDER BY dim_name";
+        // 总数
+        String countSql = "SELECT COUNT(*) AS cnt FROM dwd_loan_detail WHERE account_period = ? AND caliber_type = ?" + dimFilter;
+        List<Object> countParams = new ArrayList<>(Arrays.asList(period, caliberType));
+        countParams.addAll(params);
+        int total = ((Number) jdbcTemplate.queryForMap(countSql, countParams.toArray()).get("cnt")).intValue();
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, params.toArray());
+        // 分页列表(别名转驼峰,匹配前端 dataIndex)
+        int offset = Math.max(page - 1, 0) * pageSize;
+        String listSql = "SELECT biz_id AS bizId, customer_name AS customerName, org_name AS orgName, " +
+            "biz_line_name AS bizLineName, product_name AS productName, channel_name AS channelName, " +
+            "manager_name AS managerName, loan_balance AS loanBalance, " +
+            "loan_monthly_interest AS loanMonthlyInterest, loan_monthly_interest/30 AS loanDailyInterest, " +
+            "ftp_cost AS ftpCost, risk_cost AS riskCost, op_cost AS opCost, loan_profit AS loanProfit, " +
+            "CASE WHEN loan_balance>0 THEN loan_monthly_interest/loan_balance ELSE 0 END AS loanRate, " +
+            "CASE WHEN loan_balance>0 THEN ftp_cost/loan_balance ELSE 0 END AS ftpRate " +
+            "FROM dwd_loan_detail WHERE account_period = ? AND caliber_type = ?" + dimFilter +
+            " ORDER BY loan_balance DESC LIMIT ? OFFSET ?";
 
-        // 按维度名称分组
-        Map<String, Map<String, BigDecimal>> dimMap = new LinkedHashMap<>();
-        for (Map<String, Object> row : rows) {
-            String dimName = (String) row.get("dim_name");
-            String indicatorCode = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-
-            dimMap.computeIfAbsent(dimName, k -> new HashMap<>());
-            dimMap.get(dimName).put(indicatorCode, value);
-        }
-
-        // 构建明细列表
-        List<Map<String, Object>> list = new ArrayList<>();
-        for (Map.Entry<String, Map<String, BigDecimal>> entry : dimMap.entrySet()) {
-            Map<String, BigDecimal> values = entry.getValue();
-            Map<String, Object> item = new HashMap<>();
-            item.put("dim_name", entry.getKey());
-            item.put("loan_balance", values.getOrDefault("LOAN_BALANCE", BigDecimal.ZERO));
-            item.put("interest_income", values.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO));
-            item.put("ftp_cost", values.getOrDefault("FTP_COST", BigDecimal.ZERO));
-            item.put("risk_cost", values.getOrDefault("RISK_COST", BigDecimal.ZERO));
-            item.put("op_cost", values.getOrDefault("OP_COST", BigDecimal.ZERO));
-            item.put("profit", values.getOrDefault("LOAN_PROFIT", BigDecimal.ZERO));
-            list.add(item);
-        }
+        List<Object> listParams = new ArrayList<>(Arrays.asList(period, caliberType));
+        listParams.addAll(params);
+        listParams.add(pageSize);
+        listParams.add(offset);
+        List<Map<String, Object>> list = jdbcTemplate.queryForList(listSql, listParams.toArray());
 
         Map<String, Object> result = new HashMap<>();
-        result.put("total", list.size());
+        result.put("total", total);
         result.put("list", list);
         return result;
     }
@@ -130,202 +135,107 @@ public class IndicatorDetailServiceImpl implements IndicatorDetailService {
     public Map<String, Object> getDepositIndicatorDetailList(String period, String caliberType,
                                                               String dimension, String dimensionValue,
                                                               int page, int pageSize) {
-        // 从 dw_indicator_fact 读取存款明细（按维度）
-        String dimType = dimension != null ? dimension : "TOTAL";
-        String sql = "SELECT dim_name, indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = ? AND caliber_type = ? " +
-            "AND indicator_code IN ('DEPOSIT_BALANCE', 'FTP_INCOME', 'OP_COST', 'DEPOSIT_PROFIT')";
-
-        List<Object> params = new ArrayList<>(Arrays.asList(period, dimType, caliberType));
-
-        if (dimensionValue != null && !dimensionValue.isEmpty()) {
-            sql += " AND dim_name = ?";
+        String dimCol = dimColumn(dimension);
+        List<Object> params = new ArrayList<>();
+        String dimFilter = "";
+        if (dimensionValue != null && !dimensionValue.isEmpty() && dimCol != null) {
+            dimFilter = " AND " + dimCol + " = ?";
             params.add(dimensionValue);
         }
 
-        sql += " ORDER BY dim_name";
+        String countSql = "SELECT COUNT(*) AS cnt FROM dwd_deposit_detail WHERE account_period = ? AND caliber_type = ?" + dimFilter;
+        List<Object> countParams = new ArrayList<>(Arrays.asList(period, caliberType));
+        countParams.addAll(params);
+        int total = ((Number) jdbcTemplate.queryForMap(countSql, countParams.toArray()).get("cnt")).intValue();
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, params.toArray());
+        int offset = Math.max(page - 1, 0) * pageSize;
+        String listSql = "SELECT biz_id AS bizId, customer_name AS customerName, org_name AS orgName, " +
+            "biz_line_name AS bizLineName, product_name AS productName, channel_name AS channelName, " +
+            "manager_name AS managerName, deposit_balance AS depositBalance, " +
+            "deposit_monthly_interest AS depositMonthlyInterest, deposit_monthly_interest/30 AS depositDailyInterest, " +
+            "ftp_income AS ftpIncome, op_cost AS opCost, deposit_profit AS depositProfit, " +
+            "CASE WHEN deposit_balance>0 THEN deposit_monthly_interest/deposit_balance ELSE 0 END AS depositRate, " +
+            "CASE WHEN deposit_balance>0 THEN ftp_income/deposit_balance ELSE 0 END AS ftpRate " +
+            "FROM dwd_deposit_detail WHERE account_period = ? AND caliber_type = ?" + dimFilter +
+            " ORDER BY deposit_balance DESC LIMIT ? OFFSET ?";
 
-        // 按维度名称分组
-        Map<String, Map<String, BigDecimal>> dimMap = new LinkedHashMap<>();
-        for (Map<String, Object> row : rows) {
-            String dimName = (String) row.get("dim_name");
-            String indicatorCode = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-
-            dimMap.computeIfAbsent(dimName, k -> new HashMap<>());
-            dimMap.get(dimName).put(indicatorCode, value);
-        }
-
-        // 构建明细列表
-        List<Map<String, Object>> list = new ArrayList<>();
-        for (Map.Entry<String, Map<String, BigDecimal>> entry : dimMap.entrySet()) {
-            Map<String, BigDecimal> values = entry.getValue();
-            Map<String, Object> item = new HashMap<>();
-            item.put("dim_name", entry.getKey());
-            item.put("deposit_balance", values.getOrDefault("DEPOSIT_BALANCE", BigDecimal.ZERO));
-            item.put("ftp_income", values.getOrDefault("FTP_INCOME", BigDecimal.ZERO));
-            item.put("op_cost", values.getOrDefault("OP_COST", BigDecimal.ZERO));
-            item.put("profit", values.getOrDefault("DEPOSIT_PROFIT", BigDecimal.ZERO));
-            list.add(item);
-        }
+        List<Object> listParams = new ArrayList<>(Arrays.asList(period, caliberType));
+        listParams.addAll(params);
+        listParams.add(pageSize);
+        listParams.add(offset);
+        List<Map<String, Object>> list = jdbcTemplate.queryForList(listSql, listParams.toArray());
 
         Map<String, Object> result = new HashMap<>();
-        result.put("total", list.size());
+        result.put("total", total);
         result.put("list", list);
         return result;
     }
 
     @Override
     public List<Map<String, Object>> getLoanIndicatorByDimension(String period, String caliberType, String dimension) {
-        // 从 dw_indicator_fact 读取贷款维度汇总
-        String sql = "SELECT dim_name, indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = ? AND caliber_type = ? " +
-            "AND indicator_code IN ('LOAN_BALANCE', 'INTEREST_INCOME', 'FTP_COST', 'RISK_COST', 'OP_COST', 'LOAN_PROFIT') " +
-            "ORDER BY dim_name";
+        String dimCol = dimColumn(dimension);
+        if (dimCol == null) return Collections.emptyList();
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, period, dimension, caliberType);
+        String sql = "SELECT " + dimCol + " AS dim_name, " +
+            "COUNT(*) AS count, " +
+            "COALESCE(SUM(loan_balance),0) AS total_balance, " +
+            "COALESCE(SUM(loan_monthly_interest),0) AS total_interest, " +
+            "COALESCE(SUM(ftp_cost),0) AS total_ftp_cost, " +
+            "COALESCE(SUM(risk_cost),0) AS total_risk_cost, " +
+            "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+            "COALESCE(SUM(loan_profit),0) AS total_profit, " +
+            "CASE WHEN SUM(loan_balance)>0 THEN SUM(loan_monthly_interest)/SUM(loan_balance) ELSE 0 END AS avg_rate " +
+            "FROM dwd_loan_detail WHERE account_period = ? AND caliber_type = ? AND " + dimCol + " IS NOT NULL " +
+            "GROUP BY " + dimCol + " ORDER BY total_balance DESC";
 
-        // 按维度名称分组
-        Map<String, Map<String, BigDecimal>> dimMap = new LinkedHashMap<>();
-        for (Map<String, Object> row : rows) {
-            String dimName = (String) row.get("dim_name");
-            String indicatorCode = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-
-            dimMap.computeIfAbsent(dimName, k -> new HashMap<>());
-            dimMap.get(dimName).put(indicatorCode, value);
-        }
-
-        // 构建结果
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map.Entry<String, Map<String, BigDecimal>> entry : dimMap.entrySet()) {
-            Map<String, BigDecimal> values = entry.getValue();
-            Map<String, Object> item = new HashMap<>();
-            item.put("dim_name", entry.getKey());
-            item.put("total_balance", values.getOrDefault("LOAN_BALANCE", BigDecimal.ZERO));
-            item.put("total_interest", values.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO));
-            item.put("total_ftp_cost", values.getOrDefault("FTP_COST", BigDecimal.ZERO));
-            item.put("total_risk_cost", values.getOrDefault("RISK_COST", BigDecimal.ZERO));
-            item.put("total_op_cost", values.getOrDefault("OP_COST", BigDecimal.ZERO));
-            item.put("total_profit", values.getOrDefault("LOAN_PROFIT", BigDecimal.ZERO));
-            result.add(item);
-        }
-
-        return result;
+        return jdbcTemplate.queryForList(sql, period, caliberType);
     }
 
     @Override
     public List<Map<String, Object>> getDepositIndicatorByDimension(String period, String caliberType, String dimension) {
-        // 从 dw_indicator_fact 读取存款维度汇总
-        String sql = "SELECT dim_name, indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE period = ? AND period_type = 'MONTH' AND dim_type = ? AND caliber_type = ? " +
-            "AND indicator_code IN ('DEPOSIT_BALANCE', 'FTP_INCOME', 'OP_COST', 'DEPOSIT_PROFIT') " +
-            "ORDER BY dim_name";
+        String dimCol = dimColumn(dimension);
+        if (dimCol == null) return Collections.emptyList();
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, period, dimension, caliberType);
+        String sql = "SELECT " + dimCol + " AS dim_name, " +
+            "COUNT(*) AS count, " +
+            "COALESCE(SUM(deposit_balance),0) AS total_balance, " +
+            "COALESCE(SUM(deposit_monthly_interest),0) AS total_interest, " +
+            "COALESCE(SUM(ftp_income),0) AS total_ftp_income, " +
+            "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+            "COALESCE(SUM(deposit_profit),0) AS total_profit, " +
+            "CASE WHEN SUM(deposit_balance)>0 THEN SUM(deposit_monthly_interest)/SUM(deposit_balance) ELSE 0 END AS avg_rate " +
+            "FROM dwd_deposit_detail WHERE account_period = ? AND caliber_type = ? AND " + dimCol + " IS NOT NULL " +
+            "GROUP BY " + dimCol + " ORDER BY total_balance DESC";
 
-        // 按维度名称分组
-        Map<String, Map<String, BigDecimal>> dimMap = new LinkedHashMap<>();
-        for (Map<String, Object> row : rows) {
-            String dimName = (String) row.get("dim_name");
-            String indicatorCode = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-
-            dimMap.computeIfAbsent(dimName, k -> new HashMap<>());
-            dimMap.get(dimName).put(indicatorCode, value);
-        }
-
-        // 构建结果
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map.Entry<String, Map<String, BigDecimal>> entry : dimMap.entrySet()) {
-            Map<String, BigDecimal> values = entry.getValue();
-            Map<String, Object> item = new HashMap<>();
-            item.put("dim_name", entry.getKey());
-            item.put("total_balance", values.getOrDefault("DEPOSIT_BALANCE", BigDecimal.ZERO));
-            item.put("total_ftp_income", values.getOrDefault("FTP_INCOME", BigDecimal.ZERO));
-            item.put("total_op_cost", values.getOrDefault("OP_COST", BigDecimal.ZERO));
-            item.put("total_profit", values.getOrDefault("DEPOSIT_PROFIT", BigDecimal.ZERO));
-            result.add(item);
-        }
-
-        return result;
+        return jdbcTemplate.queryForList(sql, period, caliberType);
     }
 
     @Override
     public List<Map<String, Object>> getLoanIndicatorTrend(int months, String caliberType) {
-        // 从 dw_indicator_fact 读取贷款趋势
-        String sql = "SELECT period, indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE indicator_code IN ('LOAN_BALANCE', 'INTEREST_INCOME', 'FTP_COST', 'RISK_COST', 'OP_COST', 'LOAN_PROFIT') " +
-            "AND period_type = 'MONTH' AND dim_type = 'TOTAL' AND caliber_type = ? " +
-            "ORDER BY period DESC LIMIT ?";
-
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, caliberType, months * 6);
-
-        // 按期间分组
-        Map<String, Map<String, BigDecimal>> periodMap = new LinkedHashMap<>();
-        for (Map<String, Object> row : rows) {
-            String period = (String) row.get("period");
-            String indicatorCode = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-
-            periodMap.computeIfAbsent(period, k -> new HashMap<>());
-            periodMap.get(period).put(indicatorCode, value);
-        }
-
-        // 构建趋势数据
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map.Entry<String, Map<String, BigDecimal>> entry : periodMap.entrySet()) {
-            Map<String, BigDecimal> values = entry.getValue();
-            Map<String, Object> item = new HashMap<>();
-            item.put("period", entry.getKey());
-            item.put("total_balance", values.getOrDefault("LOAN_BALANCE", BigDecimal.ZERO));
-            item.put("total_interest", values.getOrDefault("INTEREST_INCOME", BigDecimal.ZERO));
-            item.put("total_ftp_cost", values.getOrDefault("FTP_COST", BigDecimal.ZERO));
-            item.put("total_risk_cost", values.getOrDefault("RISK_COST", BigDecimal.ZERO));
-            item.put("total_op_cost", values.getOrDefault("OP_COST", BigDecimal.ZERO));
-            item.put("total_profit", values.getOrDefault("LOAN_PROFIT", BigDecimal.ZERO));
-            result.add(item);
-        }
-
-        return result;
+        String sql = "SELECT account_period AS period, " +
+            "COUNT(*) AS total_count, " +
+            "COALESCE(SUM(loan_balance),0) AS total_balance, " +
+            "COALESCE(SUM(loan_monthly_interest),0) AS total_interest, " +
+            "COALESCE(SUM(ftp_cost),0) AS total_ftp_cost, " +
+            "COALESCE(SUM(risk_cost),0) AS total_risk_cost, " +
+            "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+            "COALESCE(SUM(loan_profit),0) AS total_profit " +
+            "FROM dwd_loan_detail WHERE caliber_type = ? " +
+            "GROUP BY account_period ORDER BY account_period DESC LIMIT ?";
+        return jdbcTemplate.queryForList(sql, caliberType, months);
     }
 
     @Override
     public List<Map<String, Object>> getDepositIndicatorTrend(int months, String caliberType) {
-        // 从 dw_indicator_fact 读取存款趋势
-        String sql = "SELECT period, indicator_code, calc_value FROM dw_indicator_fact " +
-            "WHERE indicator_code IN ('DEPOSIT_BALANCE', 'FTP_INCOME', 'OP_COST', 'DEPOSIT_PROFIT') " +
-            "AND period_type = 'MONTH' AND dim_type = 'TOTAL' AND caliber_type = ? " +
-            "ORDER BY period DESC LIMIT ?";
-
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, caliberType, months * 4);
-
-        // 按期间分组
-        Map<String, Map<String, BigDecimal>> periodMap = new LinkedHashMap<>();
-        for (Map<String, Object> row : rows) {
-            String period = (String) row.get("period");
-            String indicatorCode = (String) row.get("indicator_code");
-            BigDecimal value = (BigDecimal) row.get("calc_value");
-
-            periodMap.computeIfAbsent(period, k -> new HashMap<>());
-            periodMap.get(period).put(indicatorCode, value);
-        }
-
-        // 构建趋势数据
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map.Entry<String, Map<String, BigDecimal>> entry : periodMap.entrySet()) {
-            Map<String, BigDecimal> values = entry.getValue();
-            Map<String, Object> item = new HashMap<>();
-            item.put("period", entry.getKey());
-            item.put("total_balance", values.getOrDefault("DEPOSIT_BALANCE", BigDecimal.ZERO));
-            item.put("total_ftp_income", values.getOrDefault("FTP_INCOME", BigDecimal.ZERO));
-            item.put("total_op_cost", values.getOrDefault("OP_COST", BigDecimal.ZERO));
-            item.put("total_profit", values.getOrDefault("DEPOSIT_PROFIT", BigDecimal.ZERO));
-            result.add(item);
-        }
-
-        return result;
+        String sql = "SELECT account_period AS period, " +
+            "COUNT(*) AS total_count, " +
+            "COALESCE(SUM(deposit_balance),0) AS total_balance, " +
+            "COALESCE(SUM(deposit_monthly_interest),0) AS total_interest, " +
+            "COALESCE(SUM(ftp_income),0) AS total_ftp_income, " +
+            "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+            "COALESCE(SUM(deposit_profit),0) AS total_profit " +
+            "FROM dwd_deposit_detail WHERE caliber_type = ? " +
+            "GROUP BY account_period ORDER BY account_period DESC LIMIT ?";
+        return jdbcTemplate.queryForList(sql, caliberType, months);
     }
 }

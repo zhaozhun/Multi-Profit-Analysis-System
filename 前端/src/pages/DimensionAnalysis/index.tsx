@@ -259,8 +259,8 @@ const DimensionAnalysis: React.FC = () => {
       xAxis: { type: 'value', name: '万元' },
       yAxis: { type: 'category', data: flatData.map((d: any) => d.name) },
       series: [
-        { name: '贷款利润', type: 'bar', stack: 'profit', data: flatData.map((d: any) => d.loanProfit), itemStyle: { color: '#1890ff' } },
-        { name: '存款利润', type: 'bar', stack: 'profit', data: flatData.map((d: any) => d.depositProfit), itemStyle: { color: '#722ed1' } },
+        { name: '贷款利润', type: 'bar', data: flatData.map((d: any) => d.loanProfit), itemStyle: { color: '#1890ff' }, barGap: '10%', barCategoryGap: '40%' },
+        { name: '存款利润', type: 'bar', data: flatData.map((d: any) => d.depositProfit), itemStyle: { color: '#722ed1' } },
       ],
     };
   };

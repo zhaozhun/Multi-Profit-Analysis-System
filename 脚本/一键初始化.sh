@@ -2,9 +2,14 @@
 # ============================================
 # 多维盈利分析系统 - 一键初始化脚本
 # 运行方式: cd /home/zhaoz0009/multi-profit-analysis && bash setup-all.sh
+# 数据库密码通过环境变量 DB_PASSWORD 注入(不硬编码)
 # ============================================
 
 set -e
+
+DB_USER="${DB_USER:-mpuser}"
+DB_PASS="${DB_PASSWORD:-}"
+if [ -z "$DB_PASS" ]; then echo "错误:请通过环境变量 DB_PASSWORD 提供数据库密码"; exit 1; fi
 
 echo "=========================================="
 echo "  多维盈利分析系统 - 数据库初始化"
@@ -14,23 +19,23 @@ echo "=========================================="
 echo ""
 echo "[1/5] 创建数据库和用户..."
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS multi_profit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-sudo mysql -e "CREATE USER IF NOT EXISTS 'mpuser'@'localhost' IDENTIFIED BY '<DB_PASSWORD>';"
-sudo mysql -e "GRANT ALL ON multi_profit.* TO 'mpuser'@'localhost';"
-sudo mysql -e "ALTER USER 'mpuser'@'localhost' IDENTIFIED WITH mysql_native_password BY '<DB_PASSWORD>';"
+sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
+sudo mysql -e "GRANT ALL ON multi_profit.* TO '${DB_USER}'@'localhost';"
+sudo mysql -e "ALTER USER '${DB_USER}'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';"
 sudo mysql -e "FLUSH PRIVILEGES;"
 echo "  ✅ 数据库和用户创建完成"
 
 # 2. 建表
 echo ""
 echo "[2/5] 创建数据表..."
-mysql -u mpuser -p<DB_PASSWORD> multi_profit < /home/zhaoz0009/multi-profit-analysis/create-tables.sql
+mysql -u "${DB_USER}" -p"${DB_PASS}" multi_profit < /home/zhaoz0009/multi-profit-analysis/create-tables.sql
 echo "  ✅ 数据表创建完成"
 
 # 3. 导入主数据
 echo ""
 echo "[3/5] 导入主数据..."
-mysql -u mpuser -p<DB_PASSWORD> multi_profit < /home/zhaoz0009/multi-profit-analysis/backend/src/main/resources/data-mock.sql
-mysql -u mpuser -p<DB_PASSWORD> multi_profit < /home/zhaoz0009/multi-profit-analysis/backend/src/main/resources/indicator-data.sql
+mysql -u "${DB_USER}" -p"${DB_PASS}" multi_profit < /home/zhaoz0009/multi-profit-analysis/backend/src/main/resources/data-mock.sql
+mysql -u "${DB_USER}" -p"${DB_PASS}" multi_profit < /home/zhaoz0009/multi-profit-analysis/backend/src/main/resources/indicator-data.sql
 echo "  ✅ 主数据导入完成"
 
 # 4. 生成30万条业务数据
@@ -40,7 +45,7 @@ cd /home/zhaoz0009/multi-profit-analysis/backend/src/main/resources
 python3 mock-data-generator.py
 echo "  ✅ 数据生成完成"
 
-# 5. 导入业务数据
+# 5. 导入业务数据到MySQL（约3分钟）
 echo ""
 echo "[5/5] 导入业务数据到MySQL（约3分钟）..."
 
@@ -48,12 +53,13 @@ echo "[5/5] 导入业务数据到MySQL（约3分钟）..."
 sudo mysql -e "SET GLOBAL local_infile = 1;"
 
 # 用Python脚本分批导入（避免内存问题）
-python3 -c "
+DB_USER="${DB_USER}" DB_PASS="${DB_PASS}" python3 -c "
 import csv
+import os
 import mysql.connector
 
 conn = mysql.connector.connect(
-    host='localhost', user='mpuser', password='<DB_PASSWORD>',
+    host='localhost', user=os.environ['DB_USER'], password=os.environ['DB_PASS'],
     database='multi_profit', allow_local_infile=True
 )
 cursor = conn.cursor()
@@ -95,7 +101,7 @@ echo ""
 echo "=========================================="
 echo "  验证数据"
 echo "=========================================="
-mysql -u mpuser -p<DB_PASSWORD> multi_profit -e "
+mysql -u "${DB_USER}" -p"${DB_PASS}" multi_profit -e "
 SELECT '维度主数据' as 类型, count(*) as 数量 FROM dimension_master
 UNION ALL
 SELECT '客户主数据', count(*) FROM customer_master
@@ -114,6 +120,6 @@ echo "数据库连接信息："
 echo "  Host: localhost"
 echo "  Port: 3306"
 echo "  Database: multi_profit"
-echo "  Username: mpuser"
-echo "  Password: <DB_PASSWORD>"
+echo "  Username: ${DB_USER}"
+echo "  Password: (由环境变量 DB_PASSWORD 提供,不显示)"
 echo ""

@@ -120,24 +120,19 @@ public class DataValidationServiceImpl implements DataValidationService {
     @Override
     public List<ValidationResult> detectAnomaly(String period, String dimType) {
         List<ValidationResult> anomalies = new ArrayList<>();
-        String nameCol = getDimNameColumn(dimType);
+        // dimType默认ORG；EAV透视为宽列(revenue/net_profit/各成本)
+        String dt = (dimType == null || dimType.isEmpty()) ? "ORG" : dimType;
 
-        // 获取当期数据
-        String currentSql = String.format(
-            "SELECT %s as name, sum(revenue) as revenue, sum(net_profit) as net_profit, " +
-            "sum(ftp_cost) as ftp_cost, sum(risk_cost) as risk_cost, sum(op_cost) as op_cost " +
-            "FROM dw_indicator_fact WHERE period = '%s' GROUP BY %s",
-            nameCol, period, nameCol
-        );
+        // 获取当期数据 - EAV透视
+        String currentSql = "SELECT t.dim_name as name, t.revenue, t.net_profit, " +
+            "t.ftp_cost, t.risk_cost, t.op_cost FROM (" +
+            com.multiprofit.util.IndicatorFactSql.pivot(dt, period) + ") t";
         List<Map<String, Object>> currentData = jdbcTemplate.queryForList(currentSql);
 
         // 获取上期数据
         String prevMonth = getPreviousMonth(period);
-        String prevSql = String.format(
-            "SELECT %s as name, sum(revenue) as revenue, sum(net_profit) as net_profit " +
-            "FROM dw_indicator_fact WHERE period = '%s' GROUP BY %s",
-            nameCol, prevMonth, nameCol
-        );
+        String prevSql = "SELECT t.dim_name as name, t.revenue, t.net_profit FROM (" +
+            com.multiprofit.util.IndicatorFactSql.pivot(dt, prevMonth) + ") t";
         List<Map<String, Object>> prevData = jdbcTemplate.queryForList(prevSql);
         Map<String, Map<String, Object>> prevMap = new HashMap<>();
         for (Map<String, Object> row : prevData) {
@@ -222,18 +217,6 @@ public class DataValidationServiceImpl implements DataValidationService {
     @Override
     public void saveAlertRecords(List<ValidationResult> anomalies) {
         // TODO: 保存到MySQL alert_record表
-    }
-
-    private String getDimNameColumn(String dimType) {
-        return switch (dimType) {
-            case "ORG" -> "org_name";
-            case "BIZ_LINE" -> "biz_line_name";
-            case "DEPT" -> "dept_name";
-            case "PRODUCT" -> "product_name";
-            case "CHANNEL" -> "channel_name";
-            case "MANAGER" -> "manager_name";
-            default -> "org_name";
-        };
     }
 
     private BigDecimal toBD(Object val) {

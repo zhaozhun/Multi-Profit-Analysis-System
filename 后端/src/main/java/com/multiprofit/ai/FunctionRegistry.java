@@ -44,7 +44,7 @@ public class FunctionRegistry {
             return bizDataMcp.queryProfitMetrics(dimensions, metrics, period, filters);
         });
 
-        register("drill_down_detail", "维度下钻，从机构→部门→产品逐层穿透", params -> {
+        register("drill_down_detail", "维度下钻：返回子维度各成员盈利排名(net_profit/revenue/op_cost)。parent_dim=父维度类型,parent_value=父维度值(语义保留),child_dim=子维度类型(ORG/BIZ_LINE/DEPT/PRODUCT/CHANNEL/MANAGER/CUSTOMER),period=YYYY-MM", params -> {
             String parentDim = getString(params, "parent_dim");
             String parentValue = getString(params, "parent_value");
             String childDim = getString(params, "child_dim");
@@ -52,7 +52,7 @@ public class FunctionRegistry {
             return bizDataMcp.drillDown(parentDim, parentValue, childDim, period);
         });
 
-        register("query_period_compare", "自动计算同比、环比、预算达成率", params -> {
+        register("query_period_compare", "同比环比分析：计算盈利指标当期vs基期变化率。dim_type=维度类型,dim_value=维度值(空则全行),current_period=YYYY-MM,compare_type=YOY(同比去年同月)/MOM(环比上月)", params -> {
             String dimType = getString(params, "dim_type");
             String dimValue = getString(params, "dim_value");
             String currentPeriod = getString(params, "current_period");

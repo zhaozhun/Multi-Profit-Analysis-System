@@ -218,24 +218,44 @@ public class AgentExecutor {
     }
 
     /**
-     * 继续执行function call
+     * 继续执行function call：将工具结果回灌给模型，让模型按系统提示词生成精炼自然语言回答。
+     * 若模型回灌失败(网络/限流等)，降级返回格式化的工具结果(保证有响应)。
      */
     private String continueWithFunctionResult(ModelApiClient.ToolUseBlock toolUse,
                                                Object functionResult,
                                                String sessionId) {
-        // 构建函数结果消息
+        // 工具结果转 JSON 字符串(回灌给模型用)
+        String toolResultJson = formatFunctionResult(functionResult);
+
+        try {
+            // 重新加载Agent配置获取系统提示词(保持精炼输出指令)
+            AgentConfig config = configLoader.getConfig("智能助手Agent");
+            String systemPrompt = config != null ? config.getSystemPrompt() : "";
+            String userMessage = sessionCache.getMessages(sessionId).stream()
+                    .filter(m -> m.getRole() == SessionContextCache.ChatMessage.Role.USER)
+                    .reduce((a, b) -> b).map(SessionContextCache.ChatMessage::getContent).orElse("");
+            List<ModelApiClient.ChatMessage> history = getChatHistory(sessionId);
+
+            String modelAnswer = claudeClient.continueWithToolResult(
+                    systemPrompt, userMessage, toolUse, toolResultJson,
+                    getToolsForAgent(config != null ? config.getTools() : null), history);
+
+            if (modelAnswer != null && !modelAnswer.isEmpty()) {
+                // 记录AI最终回复
+                sessionCache.addMessage(sessionId,
+                        new SessionContextCache.ChatMessage(SessionContextCache.ChatMessage.Role.ASSISTANT, modelAnswer));
+                return modelAnswer;
+            }
+        } catch (Exception e) {
+            log.warn("工具结果回灌模型失败，降级返回格式化结果: {}", e.getMessage());
+        }
+
+        // 降级:返回格式化的工具结果(模型不可用时兜底)
         String functionResultMessage = String.format(
             "函数 %s 执行完成，结果如下：\n%s",
-            toolUse.getName(),
-            formatFunctionResult(functionResult)
-        );
-
-        // 将函数结果记录到会话
+            toolUse.getName(), toolResultJson);
         sessionCache.addMessage(sessionId,
                 new SessionContextCache.ChatMessage(SessionContextCache.ChatMessage.Role.ASSISTANT, functionResultMessage));
-
-        // 这里应该递归调用Claude，但为了简化，直接返回格式化的结果
-        // 实际实现中应该继续调用Claude API
         return functionResultMessage;
     }
 

@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, Table, Select, Space, Row, Col, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import {
-  getIndicatorSummary,
-  getIndicatorDimension,
-} from '../../../services/dwApi';
+  getLoanIndicatorSummary,
+  getLoanIndicatorByDimension,
+  getLoanIndicatorDetailList,
+} from '../../../services/indicatorApi';
 
 const { Option } = Select;
 
@@ -68,13 +69,16 @@ const AssetInterestIncome: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [summaryRes, dimensionRes] = await Promise.all([
-        getIndicatorSummary('INTEREST_INCOME', period, caliberType),
-        getIndicatorDimension('INTEREST_INCOME', period, dimension, caliberType),
+      const [summaryRes, dimensionRes, detailRes] = await Promise.all([
+        getLoanIndicatorSummary(period, caliberType),
+        getLoanIndicatorByDimension(period, caliberType, dimension),
+        getLoanIndicatorDetailList(period, caliberType, dimension, dimensionValue, 1, 20),
       ]);
 
       setSummary(summaryRes || {});
       setDimensionData(dimensionRes || []);
+      setDetailList(detailRes?.list || []);
+      setPagination({ ...pagination, total: detailRes?.total || 0, current: 1 });
     } catch (error) {
       console.error('加载数据失败:', error);
       message.error('加载数据失败');

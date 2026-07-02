@@ -39,7 +39,10 @@ public class ModelApiClient {
 
     @PostConstruct
     public void init() {
-        if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("your-api-key-here")) {
+        // 识别占位符:your_api_key / your-api-key-here / 空 均视为未配置
+        if (apiKey != null && !apiKey.isEmpty()
+                && !apiKey.equals("your_api_key")
+                && !apiKey.equals("your-api-key-here")) {
             available = true;
             System.out.println("✅ 模型API已配置，AI功能可用");
             System.out.println("   Base URL: " + baseUrl);
@@ -135,6 +138,44 @@ public class ModelApiClient {
         return available;
     }
 
+    /**
+     * 将工具执行结果回灌给模型，让模型基于结果生成最终自然语言回答。
+     * Anthropic Messages 格式: messages 末尾追加
+     *   - assistant 消息(含 tool_use 块)
+     *   - user 消息(含 tool_result 块, tool_use_id 关联)
+     * 模型据此生成精炼文本(而非原始工具字段)。
+     *
+     * @param systemPrompt 系统提示词(同 Agent 配置)
+     * @param userMessage  原始用户问题
+     * @param toolUse      模型上一轮返回的 tool_use 块(含 id/name/input)
+     * @param toolResultJson 工具执行结果(JSON 字符串)
+     * @param tools        可用工具定义(允许模型继续调用,支持多轮)
+     * @param history      会话历史
+     * @return 模型生成的最终文本回答;失败时返回 null
+     */
+    public String continueWithToolResult(String systemPrompt,
+                                          String userMessage,
+                                          ToolUseBlock toolUse,
+                                          String toolResultJson,
+                                          List<ToolDefinition> tools,
+                                          List<ChatMessage> history) {
+        try {
+            String requestBody = buildRequestWithToolResult(systemPrompt, userMessage,
+                    toolUse, toolResultJson, tools, history);
+            HttpResponse<String> response = callApi(requestBody);
+            ModelResponse modelResponse = parseModelResponse(response.body());
+
+            // 模型可能再次返回 tool_use(多轮工具调用),此处取文本;若仍为 tool_use 则返回已有文本(避免无限递归)
+            if (modelResponse.getText() != null) {
+                return modelResponse.getText();
+            }
+            // 无文本(可能再次要求工具),降级返回工具结果摘要
+            return null;
+        } catch (Exception e) {
+            throw new RuntimeException("工具结果回灌模型失败: " + e.getMessage(), e);
+        }
+    }
+
     private String getSystemPrompt() {
         return "你是多维盈利分析系统的AI助手，专注于银行经营数据分析。" +
             "你需要根据用户的问题，提供专业的经营分析、数据解读和建议。" +
@@ -183,6 +224,77 @@ public class ModelApiClient {
         userMsg.put("role", "user");
         userMsg.put("content", userMessage);
         messages.add(userMsg);
+
+        request.put("messages", messages);
+
+        return objectMapper.writeValueAsString(request);
+    }
+
+    /**
+     * 构建带工具结果回灌的请求(Anthropic Messages 格式)。
+     * messages = history + user原问题 + assistant(tool_use块) + user(tool_result块)
+     */
+    @SuppressWarnings("unchecked")
+    private String buildRequestWithToolResult(String systemPrompt, String userMessage,
+                                               ToolUseBlock toolUse, String toolResultJson,
+                                               List<ToolDefinition> tools,
+                                               List<ChatMessage> history) throws JsonProcessingException {
+        Map<String, Object> request = new HashMap<>();
+        request.put("model", model);
+        request.put("max_tokens", maxTokens);
+        request.put("system", systemPrompt);
+
+        if (tools != null && !tools.isEmpty()) {
+            List<Map<String, Object>> toolList = new ArrayList<>();
+            for (ToolDefinition tool : tools) {
+                Map<String, Object> toolMap = new HashMap<>();
+                toolMap.put("name", tool.getName());
+                toolMap.put("description", tool.getDescription());
+                toolMap.put("input_schema", tool.getInputSchema());
+                toolList.add(toolMap);
+            }
+            request.put("tools", toolList);
+        }
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+
+        // 历史消息
+        if (history != null) {
+            for (ChatMessage msg : history) {
+                Map<String, Object> message = new HashMap<>();
+                message.put("role", msg.getRole());
+                message.put("content", msg.getContent());
+                messages.add(message);
+            }
+        }
+
+        // 当前用户原始问题
+        Map<String, Object> userMsg = new HashMap<>();
+        userMsg.put("role", "user");
+        userMsg.put("content", userMessage);
+        messages.add(userMsg);
+
+        // assistant 回复:含 tool_use 块(回显模型上一轮的工具调用)
+        Map<String, Object> toolUseBlock = new HashMap<>();
+        toolUseBlock.put("type", "tool_use");
+        toolUseBlock.put("id", toolUse.getId());
+        toolUseBlock.put("name", toolUse.getName());
+        toolUseBlock.put("input", toolUse.getInput() instanceof Map
+                ? toolUse.getInput() : objectMapper.readValue(toolResultJson, Map.class));
+        Map<String, Object> assistantMsg = new HashMap<>();
+        assistantMsg.put("role", "assistant");
+        assistantMsg.put("content", new Object[]{ toolUseBlock });
+        messages.add(assistantMsg);
+
+        // user 回复:tool_result 块(工具执行结果)
+        Map<String, Object> toolResultBlock = new HashMap<>();
+        toolResultBlock.put("type", "tool_result");
+        toolResultBlock.put("tool_use_id", toolUse.getId());
+        toolResultBlock.put("content", toolResultJson);
+        Map<String, Object> toolResultMsg = new HashMap<>();
+        toolResultMsg.put("role", "user");
+        toolResultMsg.put("content", new Object[]{ toolResultBlock });
+        messages.add(toolResultMsg);
 
         request.put("messages", messages);
 
@@ -252,19 +364,22 @@ public class ModelApiClient {
     }
 
     /**
-     * 解析API响应（普通对话）
+     * 解析API响应（普通对话）— Anthropic Messages格式
+     * 响应体: {"content":[{"type":"text","text":"..."},...], ...}
+     * 用ObjectMapper解析,提取首个text块的文本(避免与thinking等块混淆)
      */
     private String parseResponse(String responseBody) {
         try {
-            // 简单解析JSON提取content
-            int contentStart = responseBody.indexOf("\"text\":\"") + 8;
-            int contentEnd = responseBody.indexOf("\"", contentStart);
-            if (contentStart > 7 && contentEnd > contentStart) {
-                return responseBody.substring(contentStart, contentEnd)
-                    .replace("\\n", "\n")
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\");
+            Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
+            List<Map<String, Object>> content = (List<Map<String, Object>>) response.get("content");
+            if (content != null) {
+                for (Map<String, Object> block : content) {
+                    if ("text".equals(block.get("type"))) {
+                        return (String) block.get("text");
+                    }
+                }
             }
+            // 无text块,返回原始响应
             return responseBody;
         } catch (Exception e) {
             return responseBody;

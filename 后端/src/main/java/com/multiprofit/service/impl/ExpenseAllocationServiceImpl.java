@@ -38,26 +38,7 @@ public class ExpenseAllocationServiceImpl implements ExpenseAllocationService {
     public Map<String, Object> getExpenseSummary(String period, String caliberType, String dimension) {
         Map<String, Object> result = new HashMap<>();
 
-        // 查询业务利润汇总
-        String summarySql = "SELECT " +
-            "COUNT(*) as total_count, " +
-            "SUM(balance) as total_balance, " +
-            "SUM(interest_income) as total_interest, " +
-            "SUM(ftp_cost) as total_ftp_cost, " +
-            "SUM(risk_cost) as total_risk_cost, " +
-            "SUM(op_cost) as total_op_cost, " +
-            "SUM(profit) as total_profit " +
-            "FROM biz_profit_summary " +
-            "WHERE period = ? AND caliber_type = ?";
-
-        try {
-            Map<String, Object> summary = jdbcTemplate.queryForMap(summarySql, period, caliberType);
-            result.put("summary", summary);
-        } catch (Exception e) {
-            result.put("summary", new HashMap<>());
-        }
-
-        // 按维度汇总
+        // 维度类型 → 列名(白名单校验,防注入)
         String dimField;
         switch (dimension) {
             case "ORG": dimField = "org_name"; break;
@@ -65,35 +46,56 @@ public class ExpenseAllocationServiceImpl implements ExpenseAllocationService {
             case "PRODUCT": dimField = "product_name"; break;
             case "CHANNEL": dimField = "channel_name"; break;
             case "MANAGER": dimField = "manager_name"; break;
+            case "CUSTOMER": dimField = "customer_name"; break;
+            case "DEPT": dimField = "dept_name"; break;
             default: dimField = "org_name";
         }
 
-        String dimSql = "SELECT " +
-            dimField + " as dim_name, " +
-            "COUNT(*) as count, " +
-            "SUM(balance) as total_balance, " +
-            "SUM(op_cost) as total_op_cost, " +
-            "CASE WHEN SUM(balance) > 0 THEN SUM(op_cost) / SUM(balance) * 100 ELSE 0 END as cost_ratio " +
-            "FROM biz_profit_summary " +
-            "WHERE period = ? AND caliber_type = ? " +
-            "GROUP BY " + dimField + " " +
-            "ORDER BY total_op_cost DESC";
+        // 贷款+存款明细UNION(原 biz_profit_summary 表不存在,改用 DWD 明细表聚合运营成本)
+        String union = "SELECT biz_id, org_name, biz_line_name, product_name, channel_name, " +
+            "manager_name, customer_name, dept_name, " +
+            "loan_balance AS balance, loan_monthly_interest AS interest, " +
+            "ftp_cost, risk_cost, op_cost, loan_profit AS profit " +
+            "FROM dwd_loan_detail WHERE account_period = ? AND caliber_type = ? " +
+            "UNION ALL " +
+            "SELECT biz_id, org_name, biz_line_name, product_name, channel_name, " +
+            "manager_name, customer_name, dept_name, " +
+            "deposit_balance AS balance, deposit_monthly_interest AS interest, " +
+            "ftp_income AS ftp_cost, 0 AS risk_cost, op_cost, deposit_profit AS profit " +
+            "FROM dwd_deposit_detail WHERE account_period = ? AND caliber_type = ?";
 
+        // 汇总
         try {
-            List<Map<String, Object>> dimData = jdbcTemplate.queryForList(dimSql, period, caliberType);
+            String summarySql = "SELECT COUNT(*) AS total_count, " +
+                "COALESCE(SUM(balance),0) AS total_balance, " +
+                "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+                "COALESCE(SUM(interest),0) AS total_interest, " +
+                "COALESCE(SUM(profit),0) AS total_profit " +
+                "FROM (" + union + ") t";
+            Map<String, Object> summary = jdbcTemplate.queryForMap(summarySql, period, caliberType, period, caliberType);
+            result.put("summary", summary);
+        } catch (Exception e) {
+            result.put("summary", new HashMap<>());
+        }
+
+        // 按维度汇总
+        try {
+            String dimSql = "SELECT " + dimField + " AS dim_name, COUNT(*) AS count, " +
+                "COALESCE(SUM(balance),0) AS total_balance, " +
+                "COALESCE(SUM(op_cost),0) AS total_op_cost, " +
+                "CASE WHEN SUM(balance)>0 THEN SUM(op_cost)/SUM(balance)*100 ELSE 0 END AS cost_ratio " +
+                "FROM (" + union + ") t WHERE " + dimField + " IS NOT NULL " +
+                "GROUP BY " + dimField + " ORDER BY total_op_cost DESC";
+            List<Map<String, Object>> dimData = jdbcTemplate.queryForList(dimSql, period, caliberType, period, caliberType);
             result.put("dimension", dimData);
         } catch (Exception e) {
             result.put("dimension", new ArrayList<>());
         }
 
         // 业务明细
-        String detailSql = "SELECT * FROM biz_profit_summary " +
-            "WHERE period = ? AND caliber_type = ? " +
-            "ORDER BY op_cost DESC " +
-            "LIMIT 100";
-
         try {
-            List<Map<String, Object>> detail = jdbcTemplate.queryForList(detailSql, period, caliberType);
+            String detailSql = "SELECT * FROM (" + union + ") t ORDER BY op_cost DESC LIMIT 100";
+            List<Map<String, Object>> detail = jdbcTemplate.queryForList(detailSql, period, caliberType, period, caliberType);
             result.put("detail", detail);
         } catch (Exception e) {
             result.put("detail", new ArrayList<>());

@@ -1,6 +1,8 @@
 # 脚本/数据生成器/config.py
 # 数据生成参数配置 —— 与骨架(主数据+指标库)分离,生成器自有
 
+import os
+
 # ============================================
 # 业务规模
 # ============================================
@@ -48,8 +50,8 @@ END_DATE = "2026-07-01"     # 到今天
 DB_CONFIG = {
     "host": "127.0.0.1",
     "port": 3306,
-    "user": "mpuser",
-    "password": "<DB_PASSWORD>",
+    "user": os.environ.get("DB_USER", "mpuser"),
+    "password": os.environ.get("DB_PASSWORD", ""),
     "database": "multi_profit",
     "charset": "utf8mb4"
 }

@@ -178,16 +178,16 @@ const Dashboard: React.FC = () => {
     if (!trend) return {};
     return {
       tooltip: { trigger: 'axis' },
-      legend: { data: ['业务收入', '净利润'], top: 0, right: 0, textStyle: { fontSize: 11 } },
-      grid: { left: '3%', right: '4%', bottom: '3%', top: '12%', containLabel: true },
+      legend: { data: ['业务收入', '净利润'], top: 0, left: 'center', itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11 } },
+      grid: { left: '3%', right: '4%', bottom: '3%', top: '20%', containLabel: true },
       xAxis: { type: 'category', data: trend.months, axisLabel: { fontSize: 10 } },
       yAxis: [
         { type: 'value', name: '收入', position: 'left', axisLabel: { fontSize: 10 } },
         { type: 'value', name: '利润', position: 'right', axisLabel: { fontSize: 10 } },
       ],
       series: [
-        { name: '业务收入', type: 'bar', data: trend.revenueTrend, itemStyle: { color: '#1890ff' }, barWidth: '40%' },
-        { name: '净利润', type: 'line', yAxisIndex: 1, data: trend.profitTrend, itemStyle: { color: '#52c41a' }, smooth: true, symbol: 'none' },
+        { name: '业务收入', type: 'bar', data: trend.revenueTrend, itemStyle: { color: '#1890ff', opacity: 0.55 }, barWidth: '40%', z: 1 },
+        { name: '净利润', type: 'line', yAxisIndex: 1, data: trend.profitTrend, itemStyle: { color: '#52c41a' }, lineStyle: { width: 3 }, symbol: 'circle', symbolSize: 7, smooth: true, z: 10 },
       ],
     };
   };
